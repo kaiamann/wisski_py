@@ -140,91 +140,6 @@ class Pathbuilder:
         # New path does not belong to any bundle:
         return False
 
-    def build_entity(self, bundle_id: str, values: dict, uri:str = None) -> Entity:
-        """Build an entity from a list of values.
-
-        Args:
-            bundle_id (str): The bundle ID of the entity.
-            values (dict): The values as a field_id -> field_value map 
-            uri (str, optional): The URI of the entity. Defaults to None.
-
-        Returns:
-            Entity: The entity.
-        """
-        bundle = self.get_group_for_bundle_id(bundle_id)
-
-        sub_bundles = {}
-        entity_values = {}
-
-        for path_id, path in bundle['children'].items():
-            if path['is_group']:
-                # Initialize values when there aren't any yet.
-                if path['bundle'] not in entity_values:
-                    entity_values[path['bundle']] =  []
-
-                entity_values[path['bundle']].append(self.build_entity(path['bundle'], values))
-                sub_bundles[path_id] = path
-                continue
-
-            # If we do not have a value for this path skip it.
-            if path['field'] not in values.keys():
-                continue
-
-            entity_values[path['field']] = values[path['field']]
-
-        return Entity(bundle_id, entity_values, uri)
-
-    def build_api_data(self, entity: Entity) -> dict:
-        """Serialize the passed entity into the format that is expected by the remote API endpoint.
-
-        Args:
-            entity (Entity): The entity to be serialized.
-
-        Returns:
-            dict: The serialized entity.
-        """
-        entity_data = {
-            "bundle": [
-                {
-                    "target_id": entity.bundle_id,
-                    "target_type": WISSKI_BUNDLE,
-                }
-            ]
-        }
-        # Attach URI if one was specified
-        if entity.uri:
-            entity_data["wisski_uri"] = [{"value": entity.uri}]
-
-        bundle_path = self.get_group_for_bundle_id(entity.bundle_id)
-        # print(json.dumps(bundle_path))
-
-        # Abort if not a bundle.
-        if "children" not in bundle_path:
-            return None
-
-        for path in bundle_path["children"].values():
-            field_id = path["field"]
-            field_data = []
-
-            # Skip this path if we do not have a value for this field in our mapped data.
-            if field_id not in entity.values.keys():
-                continue
-
-            # Build a the field data for each provided field value
-            # TODO: check for path cardinality here.
-            for value in entity.values[field_id]:
-                if path["is_group"]:
-                    # Skip sub-entities with no field values.
-                    if len(value.values) == 0:
-                        continue
-                    child_values = self.build_api_data(value)
-                    # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
-                    field_data.append({"entity": child_values})
-                else:
-                    field_data.append(Pathbuilder.__build_field_data(path, value))
-
-            entity_data[field_id] = field_data
-        return entity_data
 
     def combine(self, other) -> Pathbuilder:
         """Combine this pathbuilder with another pathbuilder.
@@ -245,7 +160,7 @@ class Pathbuilder:
         return self
 
     @staticmethod
-    def __build_field_data(path: dict, value: any) -> dict:
+    def _build_field_data(path: dict, value: any) -> dict:
         """Build the field data for a particular path and value.
 
         Args:
@@ -513,6 +428,93 @@ class Api:
     # --- Entity Handling ---
     # -----------------------
 
+    def build_entity(self, bundle_id: str, values: dict, uri:str = None) -> Entity:
+        """Build an entity from a list of values.
+
+        This builds the entity including nested sub-entities.
+
+        Args:
+            bundle_id (str): The bundle ID of the entity.
+            values (dict): The values as a field_id -> field_value map 
+            uri (str, optional): The URI of the entity. Defaults to None.
+
+        Returns:
+            Entity: The entity.
+        """
+        bundle = self.pathbuilder.get_group_for_bundle_id(bundle_id)
+
+        sub_bundles = {}
+        entity_values = {}
+
+        for path_id, path in bundle['children'].items():
+            if path['is_group']:
+                # Initialize values when there aren't any yet.
+                if path['bundle'] not in entity_values:
+                    entity_values[path['bundle']] =  []
+
+                entity_values[path['bundle']].append(self.build_entity(path['bundle'], values))
+                sub_bundles[path_id] = path
+                continue
+
+            # If we do not have a value for this path skip it.
+            if path['field'] not in values.keys():
+                continue
+
+            entity_values[path['field']] = values[path['field']]
+
+        return Entity(bundle_id, entity_values, uri)
+
+    def serialize_entity(self, entity: Entity) -> dict:
+        """Serialize the passed entity into the format that is expected by the remote API endpoint.
+
+        Args:
+            entity (Entity): The entity to be serialized.
+
+        Returns:
+            dict: The serialized entity.
+        """
+        entity_data = {
+            "bundle": [
+                {
+                    "target_id": entity.bundle_id,
+                    "target_type": WISSKI_BUNDLE,
+                }
+            ]
+        }
+        # Attach URI if one was specified
+        if entity.uri:
+            entity_data["wisski_uri"] = [{"value": entity.uri}]
+
+        bundle_path = self.pathbuilder.get_group_for_bundle_id(entity.bundle_id)
+
+        # Abort if not a bundle.
+        if "children" not in bundle_path:
+            return None
+
+        for path in bundle_path["children"].values():
+            field_id = path["field"]
+            field_data = []
+
+            # Skip this path if we do not have a value for this field in our mapped data.
+            if field_id not in entity.values.keys():
+                continue
+
+            # Build a the field data for each provided field value
+            # TODO: check for path cardinality here.
+            for value in entity.values[field_id]:
+                if path["is_group"]:
+                    # Skip sub-entities with no field values.
+                    if len(value.values) == 0:
+                        continue
+                    child_values = self.serialize_entity(value)
+                    # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
+                    field_data.append({"entity": child_values})
+                else:
+                    field_data.append(Pathbuilder._build_field_data(path, value))
+
+            entity_data[field_id] = field_data
+        return entity_data
+
     def get_entity(self, uri: str, meta=0, expand=1) -> Entity:
         """Get an entity from the WissKI API.
 
@@ -569,7 +571,7 @@ class Api:
             return None
 
         url = f"{self.base_url}/entity/create?overwrite={1 if create_if_new else 0}"
-        entity_data = self.pathbuilder.build_api_data(entity)
+        entity_data = self.serialize_entity(entity)
         response = self.post(url=url, json_data=entity_data)
         # TODO: add error handling
         return response.text
@@ -599,7 +601,7 @@ class Api:
         # Post every csv row
         responses = []
         for row in csv_data:
-            entity = self.pathbuilder.build_entity(bundle_id, row)
+            entity = self.build_entity(bundle_id, row)
             # TODO: add save mode codes here only save/update/ both
             self.save(entity)
             responses.append(entity)
