@@ -21,7 +21,7 @@ In case you want to specify some headers you can do so by supplying them with th
 api_url = "https://example.wisski.url/wisski/api/v0"
 auth = ("some_username", "super_secure_password")
 headers = {"Cache-Control": "no-cache"}
-api = WisskiApi(api_url, auth, headers)
+api = Api(api_url, auth, headers)
 ```
 
 ## Pathbuilders
