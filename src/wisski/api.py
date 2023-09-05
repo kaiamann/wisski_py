@@ -57,17 +57,6 @@ class Pathbuilder:
         for child in children:
             self.setup_metadata(child)
 
-    def contains_bundle(self, bundle_id: str) -> bool:
-        """Check if the bundle occurs within this pathbuilder.
-
-        Args:
-            bundle_id (str): The bundle ID to check.
-
-        Returns:
-            bool: True if the bundle occurs, false otherwise.
-        """
-        return bundle_id in self.pb_paths
-
     def get_group_for_bundle_id(self, bundle_id: str, search_tree: dict = None) -> dict:
         """Get the path for a particular bundle ID from the provided search tree.
 
@@ -140,7 +129,6 @@ class Pathbuilder:
         # New path does not belong to any bundle:
         return False
 
-
     def combine(self, other) -> Pathbuilder:
         """Combine this pathbuilder with another pathbuilder.
 
@@ -158,43 +146,6 @@ class Pathbuilder:
             self.add_path(new_path)
 
         return self
-
-    @staticmethod
-    def _build_field_data(path: dict, value: any) -> dict:
-        """Build the field data for a particular path and value.
-
-        Args:
-            path (dict): The path that the value should be stored to.
-            value (any): The value to be stored.
-
-        Returns:
-            dict: The field data as a dict.
-        """
-        content = []
-
-        field_type = path["fieldtype"]
-        if field_type == "string":
-            content = {"value": value}
-        elif field_type == "entity_reference":
-            content = {
-                "target_uri": value,
-                "target_type": WISSKI_INDIVIDUAL,
-            }
-        elif field_type == "text_long":
-            content = {
-                "value": value,
-                "format": "basic_html",
-            }
-        elif field_type == "image":
-            # TODO: see what of these is needed/correct
-            content = {
-                "target_id": value,
-                "alt": None,
-                "title": None,
-                "target_type": "file",
-                "url": "some URL",
-            }
-        return content
 
 
 class Entity:
@@ -295,6 +246,23 @@ class Api:
             pathbuilders[pathbuilder_id] = self.get_pathbuilder(pathbuilder_id)
         # Build the combined pathbuilder.
         return self.combine_pathbuilders(pathbuilders)
+
+    def save(self, obj: Entity | Pathbuilder) -> str:
+        """Save an entity to the remote.
+
+        Args:
+            obj (Entity | Pathbuilder): The entity to be saved
+
+        Returns:
+            str: The response.
+        """
+        match obj:
+            case Entity():
+                obj.uri = self.save_entity(obj)
+                return obj.uri
+            case Pathbuilder():
+                # TODO: implement? or see if the flat path format is better suited for im/export...
+                pass
 
     # ----------------------------
     # --- Pathbuilder Handling ---
@@ -428,14 +396,14 @@ class Api:
     # --- Entity Handling ---
     # -----------------------
 
-    def build_entity(self, bundle_id: str, values: dict, uri:str = None) -> Entity:
+    def build_entity(self, bundle_id: str, values: dict, uri: str = None) -> Entity:
         """Build an entity from a list of values.
 
         This builds the entity including nested sub-entities.
 
         Args:
             bundle_id (str): The bundle ID of the entity.
-            values (dict): The values as a field_id -> field_value map 
+            values (dict): The values as a field_id -> field_value map
             uri (str, optional): The URI of the entity. Defaults to None.
 
         Returns:
@@ -446,21 +414,23 @@ class Api:
         sub_bundles = {}
         entity_values = {}
 
-        for path_id, path in bundle['children'].items():
-            if path['is_group']:
+        for path_id, path in bundle["children"].items():
+            if path["is_group"]:
                 # Initialize values when there aren't any yet.
-                if path['bundle'] not in entity_values:
-                    entity_values[path['bundle']] =  []
+                if path["bundle"] not in entity_values:
+                    entity_values[path["bundle"]] = []
 
-                entity_values[path['bundle']].append(self.build_entity(path['bundle'], values))
+                entity_values[path["bundle"]].append(
+                    self.build_entity(path["bundle"], values)
+                )
                 sub_bundles[path_id] = path
                 continue
 
             # If we do not have a value for this path skip it.
-            if path['field'] not in values.keys():
+            if path["field"] not in values.keys():
                 continue
 
-            entity_values[path['field']] = values[path['field']]
+            entity_values[path["field"]] = values[path["field"]]
 
         return Entity(bundle_id, entity_values, uri)
 
@@ -510,7 +480,7 @@ class Api:
                     # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
                     field_data.append({"entity": child_values})
                 else:
-                    field_data.append(Pathbuilder._build_field_data(path, value))
+                    field_data.append(Api.__build_field_data(path, value))
 
             entity_data[field_id] = field_data
         return entity_data
@@ -531,23 +501,6 @@ class Api:
             return None
 
         return Entity.build_from_tree(json.loads(response.text))
-
-    def save(self, obj: Entity | Pathbuilder) -> str:
-        """Save an entity to the remote.
-
-        Args:
-            obj (Entity | Pathbuilder): The entity to be saved
-
-        Returns:
-            str: The response.
-        """
-        match obj:
-            case Entity():
-                obj.uri = self.save_entity(obj)
-                return obj.uri
-            case Pathbuilder():
-                # TODO: implement? or see if the flat path format is better suited for im/export...
-                pass
 
     def save_entity(self, entity: Entity, create_if_new: bool = True) -> str:
         """Update an existing WissKI entity on the remote.
@@ -697,12 +650,39 @@ class Api:
             url, auth=self.auth, headers=self.headers, timeout=self.timeout
         )
 
+    @staticmethod
+    def __build_field_data(path: dict, value: any) -> dict:
+        """Build the field data for a particular path and value.
 
+        Args:
+            path (dict): The path that the value should be stored to.
+            value (any): The value to be stored.
 
-# data = api.export_pathbuilder("gemaeldesammlung")
-# with open(file="gemaeldesammlung.xml" ,mode="w+", encoding="utf-8") as file:
-#     file.write(data['xml'])
+        Returns:
+            dict: The field data as a dict.
+        """
+        content = []
 
-# ent = api.get_entity("https://kai.wisski.data.fau.de/5d71064a6d4c7")
-# print(json.dumps(ent.flatten()))
-
+        field_type = path["fieldtype"]
+        if field_type == "string":
+            content = {"value": value}
+        elif field_type == "entity_reference":
+            content = {
+                "target_uri": value,
+                "target_type": WISSKI_INDIVIDUAL,
+            }
+        elif field_type == "text_long":
+            content = {
+                "value": value,
+                "format": "basic_html",
+            }
+        elif field_type == "image":
+            # TODO: see what of these is needed/correct
+            content = {
+                "target_id": value,
+                "alt": None,
+                "title": None,
+                "target_type": "file",
+                "url": "some URL",
+            }
+        return content

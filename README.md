@@ -78,7 +78,7 @@ sub_entity = entity.values["sub_bundle_id"][0]
 # Change the field values
 sub_entity.values["sub_bundle_field_id"] = ["This value also comes from Python!"]
 # save to remote
-entity.save()
+api.save(entity)
 ```
 
 ### Importing/Creating Entities:
@@ -95,6 +95,7 @@ Format:
 - PATH_NAME: `BUNDLE/FIELD_ID`
 - **bold** font denotes that the path belongs to a bundle.
 
+Code for importing into this structure:
 ```py
 # First set up the production sub-entity
 production_values = {
@@ -120,7 +121,7 @@ values = {
     'inventory_number_field_id': ["I1234"],
     'title_field_id': ["some Title", "another Title"],
 }
-collection_object = api.pathbuilder.build_entity('object_bundle_id','object_bundle_id',  values)
+collection_object = api.build_entity('object_bundle_id','object_bundle_id',  values)
 api.save(collection_object)
 ```
 
