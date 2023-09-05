@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wisski"
+version = "0.0.1"
+authors = [
+  { name="Kai Amann", email="kai.amann@fau.de" },
+]
+description = "A library for interacting with WissKI Systems via API."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[project.urls]
+"Homepage" = "https://github.com/kaiamann/wisski_api_py"
+"Bug Tracker" = "https://github.com/kaiamann/wisski_api_py/issues"
