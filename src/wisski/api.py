@@ -5,6 +5,7 @@ from enum import Enum
 import csv
 import copy
 import json
+import os
 from typing import Any
 import requests
 
@@ -130,10 +131,7 @@ class Pathbuilder:
         return False
 
     def combine(self, other) -> Pathbuilder:
-        """Combine this pathbuilder with another pathbuilder.
-
-        Returns:
-            Pathbuilder: the combined pathbuilder.
+        """Combine this pathbufile_exists = os.path.isfile(filename)ombined pathbuilder.
         """
         # Add every path in every pathbuilder to the new one.
         for path in other.pb_paths.values():
@@ -175,6 +173,51 @@ class Entity:
                 else:
                     flattened.update(value.flatten())
         return flattened
+
+    def to_csv(self, folder: str, parent = None):
+        # TODO THIS ONLY WORKS WITH ENTITIES THAT HAVE URIs
+        filename = f"{folder}/{self.bundle_id}.csv"
+
+        file_exists = os.path.isfile(filename)
+        uri = 0
+        if file_exists:
+            # Get headers fs file exists.
+            with open(filename, mode="r", encoding="utf-8") as file:
+                reader = csv.reader(file)
+                headers = next(reader)
+
+        else:
+            # Just take the order of values
+            headers = ['uri']
+            if parent:
+                headers.append('parent')
+            headers.extend(self.values.keys())
+
+
+        with open(filename, mode="a", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            row = []
+            for field_id in headers:
+                if field_id == "uri":
+                    row.append(self.uri)
+                    continue
+                if field_id == "parent":
+                    row.append(parent)
+                    continue
+
+                field_values = self.values[field_id]
+                # we have a sub-bundle
+                if field_id.startswith('b'):
+                    # Save every sub-entity to CSV
+                    for field_value in field_values:
+                        if not isinstance(field_value, Entity):
+                            raise Exception(f"Field value of a sub-bundle field {field_id} is not an Entity!")
+                        field_value.to_csv(folder, self.uri)
+                    continue
+                row.append("|".join(str(x) for x in field_values))
+            if not file_exists:
+                writer.writerow(headers)
+            writer.writerow(row)
 
     @staticmethod
     def build_from_tree(tree: dict) -> Entity:
@@ -258,7 +301,7 @@ class Api:
         """
         match obj:
             case Entity():
-                obj.uri = self.save_entity(obj)
+                obj.uri = self.save_entities(obj)
                 return obj.uri
             case Pathbuilder():
                 # TODO: implement? or see if the flat path format is better suited for im/export...
@@ -285,6 +328,15 @@ class Api:
         args = json.loads(response.text)
         pathbuilder = Pathbuilder(args["id"], args["paths"])
         return pathbuilder
+
+    def get_pb_test(self, pathbuilder_id):
+        url = f"{self.base_url}/pathbuilder/{pathbuilder_id}/get"
+        return self.get(url)
+
+    def save_pathbuilder(self, pathbuilder: Pathbuilder) -> Pathbuilder:
+        url = f"{self.base_url}/pathbuilder/create/delete"
+        response = self.delete(url=url)
+        pass
 
     def delete_pb(self, pathbuilder_id: str) -> str:
         """Delete a pathbuilder from the remote.
@@ -361,7 +413,7 @@ class Api:
                 "xml": xml,
                 "mode": mode,
             }
-            response = self.post(url=url, data=data)
+            response = self.post(url=url, json_data=data)
 
             if response.status_code == 200:
                 # If the pb was successfully added to the remote, update the local pb.
@@ -391,6 +443,12 @@ class Api:
         if response.status_code != 200:
             return response.text
         return json.loads(response.text)
+
+    def generate_bundles_and_fields(self):
+        # Generate bundles and fields for every pathbuilder.
+        for pathbuilder_id in self.pathbuilders:
+            url = f"{self.base_url}/pathbuilder/{pathbuilder_id}/generate"
+            self.get(url)
 
     # -----------------------
     # --- Entity Handling ---
@@ -426,8 +484,9 @@ class Api:
                 sub_bundles[path_id] = path
                 continue
 
-            # If we do not have a value for this path skip it.
+            # If we do not have a value for this path set it to empty.
             if path["field"] not in values.keys():
+                entity_values[path["field"]] = []
                 continue
 
             entity_values[path["field"]] = values[path["field"]]
@@ -502,7 +561,8 @@ class Api:
 
         return Entity.build_from_tree(json.loads(response.text))
 
-    def save_entity(self, entity: Entity, create_if_new: bool = True) -> str:
+
+    def save_entities(self, entities: list[Entity], create_if_new: bool = True) -> str:
         """Update an existing WissKI entity on the remote.
 
         Args:
@@ -520,14 +580,37 @@ class Api:
         # 1: create and update
         # 2: only update
         # 3: only create
-        if not create_if_new and entity.uri is None:
+        if not create_if_new and entities.uri is None:
             return None
 
         url = f"{self.base_url}/entity/create?overwrite={1 if create_if_new else 0}"
-        entity_data = self.serialize_entity(entity)
-        response = self.post(url=url, json_data=entity_data)
-        # TODO: add error handling
-        return response.text
+        data = []
+        for entity in entities:
+            data.append(self.serialize_entity(entity))
+
+        # response = self.post(url=url, json_data=data)
+        response = requests.post(
+            url = url,
+            json=data,
+            headers=self.headers,
+            auth=self.auth,
+            timeout=1200
+            )
+
+        # Something went wrong...
+        if response.status_code != 200:
+            return response.text
+
+
+        # Replace the entities with the one from the API
+        entities = []
+
+        for entity_data in json.loads(response.text):
+            print(entity_data)
+            entities.append(Entity.build_from_tree(entity_data))
+
+        return entities
+
 
     # ----------------------
     # --- File Utilities ---
@@ -552,14 +635,11 @@ class Api:
         csv_data = self.parse_csv(file, separator, key_type)
 
         # Post every csv row
-        responses = []
+        entities = []
         for row in csv_data:
-            entity = self.build_entity(bundle_id, row)
+            entities.append(self.build_entity(bundle_id, row))
             # TODO: add save mode codes here only save/update/ both
-            self.save(entity)
-            responses.append(entity)
-
-        return responses
+        return self.save_entities(entities)
 
     def parse_csv(
         self, csv_path: str, separator: str = "|", key_type: KeyType = KeyType.FIELD_ID
@@ -618,7 +698,7 @@ class Api:
             url, auth=self.auth, headers=self.headers, timeout=self.timeout
         )
 
-    def post(self, url: str, json_data: dict = None, data: str = None):
+    def post(self, url: str, json_data: dict = None, data: str = None, timeout: int = None):
         """Send a HTTP POST request to a URL.
 
         Args:
@@ -634,7 +714,7 @@ class Api:
             json=json_data,
             auth=self.auth,
             headers=self.headers,
-            timeout=self.timeout,
+            timeout=timeout if timeout else self.timeout,
         )
 
     def delete(self, url: str):
