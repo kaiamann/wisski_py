@@ -40,7 +40,7 @@ api.pathbuilders = ['pathbuilder1']
 The API can also handle multiple pathbuilders, by combining several pathbuilders.
 Note that the combining only happens on the client (Python) side.
 This functionality allows assigning values to paths from multiple pathbuilders:
-E.g. 
+E.g.
 - `pathbuilder1` has a path that documents the name of a person.
 - `pathbuilder2` has a path that documents the occupation of this person.
 Assuming that the pathbuilders are configured in a way that these paths belong to the same `person` bundle we can now build a combined pathbuilder like this:
@@ -56,19 +56,22 @@ self.api.pathbuilders = ['pathbuilder1', 'pathbuilder2']
 Entities can be easily loaded by:
 ```py
 entity = api.get_entity("https://some.random.uri")
-print(entity.values)
-print(entity.uri)
-print(entity.bundle_id)
+```
+Accessing information about the entities is easily possible with:
+```py
+entity.values # Field values of the entity
+entity.uri # The URI of the entity
+entity.bundle_id # The ID of the bundle that the entity belongs to.
 ```
 
 ### Editing Entities:
 Entities can be easily edited by:
 ```py
 entity.values["some_field_id"] = ["This value comes from Python!"]
-# save to remote
+# Save to remote
 api.save(entity)
 ```
-Values are always encapsulated in arrays.
+Field values are always encapsulated in arrays.
 
 
 In case there are sub entities:
@@ -77,12 +80,12 @@ In case there are sub entities:
 sub_entity = entity.values["sub_bundle_id"][0]
 # Change the field values
 sub_entity.values["sub_bundle_field_id"] = ["This value also comes from Python!"]
-# save to remote
+# Save to remote
 api.save(entity)
 ```
 
-### Importing/Creating Entities:
-To import entities from a `.csv` file you just need to supply an entity with a dict that contains the corresponding `field_id` -> `value` mapping.
+### Creating new Entities:
+To create new entities you just need to supply an entity with a dict that contains the corresponding `field_id` -> `value` mapping.
 
 Let's look at the following example pathbuilder structure to illustrate:
 - **Collection Object**: `object_bundle_id`
@@ -91,11 +94,11 @@ Let's look at the following example pathbuilder structure to illustrate:
   - **Production**: `production_bundle_id`
     - Date: `date_field_id`
 
-Format: 
+Format:
 - PATH_NAME: `BUNDLE/FIELD_ID`
 - **bold** font denotes that the path belongs to a bundle.
 
-Code for importing into this structure:
+Code for creating a new entity:
 ```py
 # First set up the production sub-entity
 production_values = {
@@ -110,11 +113,14 @@ object_values = {
     'production_bundle_id': [production]
 }
 collection_object = Entity(values=object_values, bundle_id="object_bundle_id")
-# Save the collection object to the remote.
+```
+As of now this entity does not have a URI.
+Upon saving the entity to the remote, its URI gets updated.
+```py
 api.save(collection_object)
 ```
 
-You can also import it from a flat data structure like this:
+You can also import from a flat data structure like this:
 ```py
 values = {
     'date_field_id': ["11.11.1111"]
@@ -124,8 +130,22 @@ values = {
 collection_object = api.build_entity('object_bundle_id','object_bundle_id',  values)
 api.save(collection_object)
 ```
+Just keep in mind that this approach cannot create multiple sub-entities for a specific sub-bundle
 
-Its also possible to directly import csv files:
-```py
-responses = api.import_csv("production_bundle_id", "test_ent.csv")
+## Importing Entities via CSV
+You can also import it from CSV files.
+A csv file containing entities of a specific bundle should be named like the corresponding bundle id.
+
+For our exmaple this would result in:
+- `object_bundle_id.csv`
+- `production_bundle_id.csv`
+
+These files feature the corresponding field ids as keys, as well as the uri of the entity.
+e.g. `object_bundle_id.csv`:
 ```
+uri,inventory_number_field_id,title_field_id,production_bundle_id
+```
+
+Here the column `production_bundle_id` would contain URIs of the referenced productions in `production_bundle_id.csv`.
+
+# TODO: continue here
