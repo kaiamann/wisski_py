@@ -3,6 +3,7 @@
 from __future__ import annotations
 from typing import Optional
 from enum import Enum
+from html.parser import HTMLParser
 import csv
 import copy
 import json
@@ -83,6 +84,12 @@ class Pathbuilder:
                     return child_res
         return None
 
+    def get_path_for_id(self, field_id: str) -> dict:
+        for pb_path in self.pb_paths.values():
+            if pb_path['field'] == field_id or pb_path['is_group'] and pb_path['bundle'] == field_id:
+                return pb_path
+        return None
+
     def add_path(self, new_path: dict, tree: dict = None) -> bool:
         """Add a path to this pathbuilder.
 
@@ -150,12 +157,14 @@ class Entity:
 
     def __init__(
         self,
+        api: Api,
         bundle_id: str,
-        values: dict,
+        fields: dict,
         uri: str = None,
     ) -> None:
+        self.api = api
         self.bundle_id = bundle_id
-        self.values = values
+        self.fields = fields
         self.uri = uri
 
     def flatten(self) -> dict:
@@ -165,13 +174,102 @@ class Entity:
             dict: The values of this and all sub-entities in a flat dict.
         """
         flattened = {}
-        for field_id, values in self.values.items():
+        for field_id, values in self.fields.items():
             for value in values:
                 if not isinstance(value, Entity):
                     flattened[field_id] = value
                 else:
                     flattened.update(value.flatten())
         return flattened
+
+    def serialize(self) -> dict:
+        """Serialize the passed entity into the format that is expected by the remote API endpoint.
+
+        Args:
+            entity (Entity): The entity to be serialized.
+
+        Returns:
+            dict: The serialized entity.
+        """
+        entity_data = {
+            "bundle": [
+                {
+                    "target_id": self.bundle_id,
+                    "target_type": WISSKI_BUNDLE,
+                }
+            ]
+        }
+        # Attach URI if one was specified
+        if self.uri:
+            entity_data["wisski_uri"] = [{"value": self.uri}]
+
+        bundle_path = self.api.pathbuilder.get_group_for_bundle_id(self.bundle_id)
+
+        # Abort if not a bundle.
+        if "children" not in bundle_path:
+            return None
+
+        for path_id, path in bundle_path["children"].items():
+            field_id = path["field"]
+            field_data = []
+
+            # Skip this path if we do not have a value for this field in our mapped data.
+            if field_id not in self.fields.keys():
+                continue
+
+            # Build a the field data for each provided field value
+            # TODO: check for path cardinality here.
+            for value in self.fields[field_id]:
+                if path["is_group"]:
+                    # Skip sub-entities with no field values.
+                    if len(value.fields) == 0:
+                        continue
+                    child_values = value.serialize()
+                    # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
+                    field_data.append({"entity": child_values})
+                else:
+                    field_data.append(value)
+
+            entity_data[field_id] = field_data
+        return entity_data
+
+    @staticmethod
+    def deserialize(api: Api, data: dict) -> Entity:
+        """Builds a new entity from the tree representation.
+
+        Args:
+            tree (dict): The entity in tree representation.
+
+        Returns:
+            Entity: The new entity.
+        """
+        entity_values = {}
+        for field_id, values in data.items():
+            # Extract bundle and URI
+            if field_id == "bundle":
+                bundle_id = data["bundle"][0]["target_id"]
+                continue
+            if field_id == "wisski_uri":
+                uri = data["wisski_uri"][0]["value"]
+                continue
+
+            new_field_value = []
+            for field_value in values:
+                # Catch sub-entities and deserialize them.
+                if "entity" in field_value:
+                    new_field_value.append(
+                        __class__.deserialize(api, field_value["entity"])
+                    )
+                    continue
+                new_field_value.append(field_value)
+
+            # Initialize with empty list if no value is present.
+            if field_id not in entity_values:
+                entity_values[field_id] = []
+            if len(new_field_value) != 0:
+                entity_values[field_id] = new_field_value
+
+        return Entity(api=api, bundle_id=bundle_id, fields=entity_values, uri=uri)
 
     def to_csv(self, folder: str) -> None:
         """Convert this entity into csv.
@@ -195,13 +293,14 @@ class Entity:
         file_exists = os.path.isfile(filename)
         if file_exists:
             # Get headers
+            # TODO: add potentially missing headers
             with open(filename, mode="r", encoding="utf-8") as file:
                 reader = csv.reader(file)
                 headers = next(reader)
         else:
             # Just take the order of values
             headers = ["uri"]
-            headers.extend(self.values.keys())
+            headers.extend(self.fields.keys())
 
         with open(filename, mode="a", encoding="utf-8") as file:
             writer = csv.writer(file)
@@ -211,10 +310,12 @@ class Entity:
                     row.append(self.uri)
                     continue
 
-                field_values = self.values[field_id]
+                field_values = self.fields[field_id]
+                pb_path = self.api.pathbuilder.get_path_for_id(field_id)
+                field_type = pb_path['fieldtype']
                 # we have a sub-bundle
-                # TODO: this is a hack, consult the pathbuilder instead.
-                if field_id.startswith("b"):
+                # print(self.api.pathbuilder.pb_paths[path_id])
+                if pb_path["is_group"]:
                     uris = []
                     # Save every sub-entity to CSV
                     for sub_entity in field_values:
@@ -228,52 +329,10 @@ class Entity:
                         sub_entity.to_csv(folder)
                     row.append("|".join(str(x) for x in uris))
                     continue
-                row.append("|".join(str(x) for x in field_values))
+                row.append("|".join(FieldTypeFormatter.get_value(field_type, field_value) for field_value in field_values))
             if not file_exists:
                 writer.writerow(headers)
             writer.writerow(row)
-
-    @staticmethod
-    def build_from_tree(tree: dict) -> Entity:
-        """Builds a new entity from the tree representation.
-
-        Args:
-            tree (dict): The entity in tree representation.
-
-        Returns:
-            Entity: The new entity.
-        """
-        entity_values = {}
-        for field_id, values in tree.items():
-            # Extract bundle and URI
-            if field_id == "bundle":
-                bundle_id = tree["bundle"][0]["target_id"]
-                continue
-            if field_id == "wisski_uri":
-                uri = tree["wisski_uri"][0]["value"]
-                continue
-
-            # Initialize with empty list if no value is present.
-            if field_id not in entity_values:
-                entity_values[field_id] = []
-            new_field_value = []
-            for field_value in values:
-                if "value" in field_value:
-                    new_field_value.append(field_value["value"])
-                    continue
-                if "target_uri" in field_value:
-                    new_field_value.append(field_value["target_uri"])
-                    continue
-                if "entity" in field_value:
-                    new_field_value.append(
-                        Entity.build_from_tree(field_value["entity"])
-                    )
-                    continue
-            if len(new_field_value) != 0:
-                entity_values[field_id] = new_field_value
-
-        return Entity(bundle_id=bundle_id, values=entity_values, uri=uri)
-
 
 class Api:
     """Class for interacting with a remote WissKI system."""
@@ -316,7 +375,8 @@ class Api:
         """
         match obj:
             case Entity() as entity:
-                return self.save_entities([entity])[0]
+                entity = self.save_entities([entity])[0]
+                return entity
             case Pathbuilder() as pathbuilder:
                 # TODO: implement? or see if the flat path format is better suited for im/export...
                 pass
@@ -330,6 +390,9 @@ class Api:
     # ----------------------------
     # --- Pathbuilder Handling ---
     # ----------------------------
+
+    def Entity(self, bundle_id: str, values: dict, uri: str = None):
+        return Entity(api=self, bundle_id=bundle_id, fields=values, uri=uri)
 
     def get_pathbuilder(self, pathbuilder_id: str) -> Optional[Pathbuilder]:
         """Get a particular pathbuilder in normalized form.
@@ -477,6 +540,7 @@ class Api:
     # --- Entity Handling ---
     # -----------------------
 
+
     def build_entity(self, bundle_id: str, values: dict) -> Entity:
         """Build an entity from a flat list of values.
 
@@ -515,60 +579,10 @@ class Api:
 
             entity_values[path["field"]] = values[path["field"]]
 
-        return Entity(bundle_id, entity_values)
+        return Entity(self, bundle_id, entity_values)
 
-    def serialize_entity(self, entity: Entity) -> dict:
-        """Serialize the passed entity into the format that is expected by the remote API endpoint.
 
-        Args:
-            entity (Entity): The entity to be serialized.
-
-        Returns:
-            dict: The serialized entity.
-        """
-        entity_data = {
-            "bundle": [
-                {
-                    "target_id": entity.bundle_id,
-                    "target_type": WISSKI_BUNDLE,
-                }
-            ]
-        }
-        # Attach URI if one was specified
-        if entity.uri:
-            entity_data["wisski_uri"] = [{"value": entity.uri}]
-
-        bundle_path = self.pathbuilder.get_group_for_bundle_id(entity.bundle_id)
-
-        # Abort if not a bundle.
-        if "children" not in bundle_path:
-            return None
-
-        for path in bundle_path["children"].values():
-            field_id = path["field"]
-            field_data = []
-
-            # Skip this path if we do not have a value for this field in our mapped data.
-            if field_id not in entity.values.keys():
-                continue
-
-            # Build a the field data for each provided field value
-            # TODO: check for path cardinality here.
-            for value in entity.values[field_id]:
-                if path["is_group"]:
-                    # Skip sub-entities with no field values.
-                    if len(value.values) == 0:
-                        continue
-                    child_values = self.serialize_entity(value)
-                    # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
-                    field_data.append({"entity": child_values})
-                else:
-                    field_data.append(Api.__build_field_data(path, value))
-
-            entity_data[field_id] = field_data
-        return entity_data
-
-    def get_entity(self, uri: str, meta=0, expand=1) -> Entity:
+    def get_entity(self, uri: str, meta: int = 0, expand: int = 1) -> Entity:
         """Get an entity from the WissKI API.
 
         Args:
@@ -583,7 +597,7 @@ class Api:
             print(response.text)
             return None
 
-        return Entity.build_from_tree(json.loads(response.text))
+        return Entity.deserialize(self, json.loads(response.text))
 
     def save_entities(
         self, entities: list[Entity], create_if_new: bool = True
@@ -611,7 +625,7 @@ class Api:
         url = f"{self.base_url}/entity/create?overwrite={1 if create_if_new else 0}"
         data = []
         for entity in entities:
-            data.append(self.serialize_entity(entity))
+            data.append(entity.serialize())
 
         # TODO: find out when this post request fails.
         # Either due to timeout or request size.
@@ -622,8 +636,10 @@ class Api:
             return response.text
 
         # Replace the entities with the ones from the API
+        # This is necessary to also set the URIs for sub-entities
+        # since we only have the handle to the main entity.
         for i, entity_data in enumerate(json.loads(response.text)):
-            entities[i] = Entity.build_from_tree(entity_data)
+            entities[i] = Entity.deserialize(self, entity_data)
 
         return entities
 
@@ -660,29 +676,32 @@ class Api:
         # Referenced sub-entities are fetched from their respective tables.
         def build_entity_from_row(bun, uri, row):
             entity_values = {}
-            for field, values in row.items():
+            for field_id, values in row.items():
                 # we have a bundle and values to go with it
                 # TODO: assuming that the bundle_id always starts with 'b' is a hack
                 # ask the pathbuilder instead.
-                if field.startswith("b") and field in csv_data:
+                pb_path = self.pathbuilder.get_path_for_id(field_id)
+                if pb_path["is_group"] and field_id in csv_data:
                     sub_entities = []
                     # build the sub-entity
                     for sub_uri in values:
                         sub_entities.append(
                             build_entity_from_row(
-                                field, sub_uri, csv_data[field][sub_uri]
+                                field_id, sub_uri, csv_data[field_id][sub_uri]
                             )
                         )
-                    entity_values[field] = sub_entities
+                    entity_values[field_id] = sub_entities
                 else:
-                    entity_values[field] = values
-            return Entity(bun, entity_values, uri)
+                    formatted_values = []
+                    for value in values:
+                        formatted_values.append(FieldTypeFormatter.format_value(pb_path['fieldtype'], value))
+                    entity_values[field_id] = formatted_values
+            return Entity(self, bun, entity_values, uri)
 
         entities = []
         for uri, row in csv_data[bundle_id].items():
             entities.append(build_entity_from_row(bundle_id, uri, row))
-
-        return self.save_entities(entities)
+        return entities
 
     def parse_csv(
         self, csv_path: str, separator: str = "|", key_type: KeyType = KeyType.FIELD_ID
@@ -790,7 +809,7 @@ class Api:
         )
 
     @staticmethod
-    def __build_field_data(path: dict, value: any) -> dict:
+    def build_field_data(path: dict, value: any) -> dict:
         """Build the field data for a particular path and value.
 
         Args:
@@ -824,8 +843,113 @@ class Api:
                 "target_type": "file",
                 "url": "some URL",
             }
+        elif field_type == "link":
+            content = {
+                "uri": value,
+                "title": "something",
+                "options": []
+            }
         return content
 
 
 class MissingUriException(Exception):
     """Raised when an entity has no URI"""
+
+class FieldTypeFormatter:
+
+    @staticmethod
+    def format_value(field_type: str, value: str) -> dict:
+        """Format a string value to the expected Drupal format.
+
+        List of available field types:
+        comment
+        datetime
+        file_uri
+        file
+        geofield
+        image
+        link
+        list_integer
+        list_float
+        list_string
+        path
+        text_with_summary
+        text
+        text_long
+        integer
+        email
+        changed
+        string_long
+        uri
+        password
+        string
+        boolean
+        decimal
+        language
+        uuid
+        float
+        entity_reference
+        created
+        map
+        timestamp
+
+        Args:
+            field_type (str): The field type.
+            value (str): The value as a string.
+
+        Returns:
+            dict: The value wrapped in the Drupal field format.
+        """
+        formatted_value = {}
+        if field_type == "string":
+            formatted_value = {"value": value}
+        elif field_type == "entity_reference":
+            formatted_value = {
+                "target_uri": value,
+                "target_type": WISSKI_INDIVIDUAL,
+            }
+        elif field_type == "text_long":
+            formatted_value = {
+                "value": value,
+                "format": "basic_html",
+            }
+        elif field_type == "image":
+            # TODO: see what of these is needed/correct
+            formatted_value = {
+                "target_id": value,
+                "alt": None,
+                "title": None,
+                "target_type": "file",
+                "url": "some URL",
+            }
+        elif field_type == "link":
+            parser = HTMLParser()
+
+            formatted_value = {
+                "uri": value,
+                "title": value,
+                "options": []
+            }
+        return formatted_value
+
+    @staticmethod
+    def get_value(field_type: str, value: dict) -> str:
+        """Extract the value from a Drupal field item depending on field type.
+
+        Args:
+            field_type (str): The field type.
+            value (dict): The field item dict.
+
+        Returns:
+            str: The value as string.
+        """
+        if field_type in ["string", "text_long"]:
+            return value['value']
+        if field_type == "entity_reference":
+            return str(value['target_uri'])
+        if field_type == "image":
+            return str(value['target_id'])
+        if field_type == "link":
+            return f"<a href={value['uri']}>{value['title'] if 'title' in value else value['uri']}</a>"
+
+        return ""
