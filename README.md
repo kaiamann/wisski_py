@@ -59,7 +59,7 @@ entity = api.get_entity("https://some.random.uri")
 ```
 Accessing information about the entities is easily possible with:
 ```py
-entity.values # Field values of the entity
+entity.fields # Field values of the entity
 entity.uri # The URI of the entity
 entity.bundle_id # The ID of the bundle that the entity belongs to.
 ```
@@ -67,7 +67,7 @@ entity.bundle_id # The ID of the bundle that the entity belongs to.
 ### Editing Entities:
 Entities can be easily edited by:
 ```py
-entity.values["some_field_id"] = ["This value comes from Python!"]
+entity.fields["some_field_id"] = ["This value comes from Python!"]
 # Save to remote
 api.save(entity)
 ```
@@ -77,9 +77,9 @@ Field values are always encapsulated in arrays.
 In case there are sub entities:
 ```py
 # Get the first sub-entity
-sub_entity = entity.values["sub_bundle_id"][0]
+sub_entity = entity.fields["sub_bundle_id"][0]
 # Change the field values
-sub_entity.values["sub_bundle_field_id"] = ["This value also comes from Python!"]
+sub_entity.fields["sub_bundle_field_id"] = ["This value also comes from Python!"]
 # Save to remote
 api.save(entity)
 ```
@@ -104,7 +104,7 @@ Code for creating a new entity:
 production_values = {
     'date_field_id': ["11.11.1111"]
 }
-production = Entity(values=production_values, bundle_id="production_bundle_id")
+production = Entity(fields=production_values, bundle_id="production_bundle_id")
 
 # Set up the collection object entity
 object_values = {
@@ -112,15 +112,15 @@ object_values = {
     'title_field_id': ["some Title", "another Title"],
     'production_bundle_id': [production]
 }
-collection_object = Entity(values=object_values, bundle_id="object_bundle_id")
+collection_object = Entity(fields=object_values, bundle_id="object_bundle_id")
 ```
 As of now this entity does not have a URI.
-Upon saving the entity to the remote, its URI gets updated.
+Upon saving the entity to the remote, the api returns a new entity with updated URIs.
 ```py
-api.save(collection_object)
+collection_object = api.save(collection_object)
 ```
 
-You can also import from a flat data structure like this:
+You can also create Entities from a flat data structure like this:
 ```py
 values = {
     'date_field_id': ["11.11.1111"]
@@ -128,15 +128,27 @@ values = {
     'title_field_id': ["some Title", "another Title"],
 }
 collection_object = api.build_entity('object_bundle_id','object_bundle_id',  values)
-api.save(collection_object)
+collection_object = api.save(collection_object)
 ```
-Just keep in mind that this approach cannot create multiple sub-entities for a specific sub-bundle
+Just keep in mind that this approach cannot create multiple sub-entities for a specific sub-bundle. (In this case you are only able to create a single `Production` sub-entity)
 
-## Importing Entities via CSV
-You can also import it from CSV files.
-A csv file containing entities of a specific bundle should be named like the corresponding bundle id.
+## Entities and CSV
 
-For our exmaple this would result in:
+### Export
+If you want you can export an entity to `.csv` format like this:
+```py
+entity = api.get_entity("http://some.random.uri")
+out_dir = os.path.join(os.path.expanduser("~"), "csv_data")
+entity.to_csv(out_dir)
+```
+This will export the entity into potentially multiple `csv` files and place them in the `example_csv` folder in your home directory. (make sure that this directory actually exists)
+
+
+### Import
+You can also import entities from `.csv` files.
+A `.csv` file containing entities of a specific bundle should be named like the corresponding bundle id.
+
+For our previous example this would result in:
 - `object_bundle_id.csv`
 - `production_bundle_id.csv`
 
@@ -148,4 +160,11 @@ uri,inventory_number_field_id,title_field_id,production_bundle_id
 
 Here the column `production_bundle_id` would contain URIs of the referenced productions in `production_bundle_id.csv`.
 
-# TODO: continue here
+To load these files call the corresponding API functions:
+```py
+in_dir = os.path.join(os.path.expanduser("~"), "csv_data")
+entities = api.load_csv(in_dir, 'object_bundle_id')
+entities = api.save(entities)
+```
+You only need to specify the top-level bundle here.
+The API will automatically include all referenced sub-entities from the other `csv` files.

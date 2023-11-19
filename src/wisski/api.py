@@ -3,9 +3,7 @@
 from __future__ import annotations
 from typing import Optional
 from enum import Enum
-from html.parser import HTMLParser
 import csv
-import copy
 import json
 import os
 import requests
@@ -32,34 +30,31 @@ class Pathbuilder:
         CONNECT_NO_FIELD = "1ae353e47a8aa3fc995220848780758a"
         GENERATE_NEW_FIELD = "ea6cd7a9428f121a9a042fe66de406eb"
 
-    def __init__(self, pathbuilder_id: str, paths: dict) -> None:
+    def __init__(self, pathbuilder_id: str, paths: dict, name: str = None, adapter: str = None) -> None:
         self.pathbuilder_id = pathbuilder_id
-        self.paths = paths
-        self.setup_metadata()
+        self.name = name
+        self.adapter = adapter
+        self.tree = {
+            'id': '0',
+            'children': {}
+        }
+        self.paths = {}
+        self.add_paths(paths)
 
-    def setup_metadata(self, search_tree: dict = None) -> None:
-        """Set up metadata like the path_id -> field id mapping and the list of contained bundles.
+    def add_paths(self, paths):
+        parent_ids = ['0']
+        helper = paths.copy()
+        while helper: # This potentially loops infinitely if theres a path that does have a parent that does not exist
+            new_parent_ids = []
+            for path in list(helper.values()):
+                if path['parent'] in parent_ids:
+                    self.add_path(path)
+                    helper.pop(path['id'], None)
+                    new_parent_ids.append(path['id'])
+            parent_ids = new_parent_ids
 
-        Args:
-            search_tree (dict, optional): The pathbuilder in tree form. Defaults to None.
-        """
-        if search_tree is None:
-            search_tree = self.paths
-            self.pb_paths = {}
-        if len(search_tree) == 0:
-            return
 
-        # Do BFS search here to get the correct
-        # order for importing pb_paths later.
-        children = []
-        for path_id, path in search_tree.items():
-            self.pb_paths[path_id] = path
-            children.append(path["children"])
-
-        for child in children:
-            self.setup_metadata(child)
-
-    def get_group_for_bundle_id(self, bundle_id: str, search_tree: dict = None) -> dict:
+    def get_subtree_for_field_id(self, field_id: str) -> dict:
         """Get the path for a particular bundle ID from the provided search tree.
 
         Args:
@@ -69,85 +64,64 @@ class Pathbuilder:
         Returns:
             dict: The path as dict.
         """
-        if search_tree is None:
-            search_tree = self.paths
+        def search_in_tree(needle, haystack):
+            path_id = haystack['id']
 
-        if len(search_tree) == 0:
+            if path_id in self.paths and needle == self.paths[path_id]['field']:
+                return haystack
+
+            for child in haystack['children'].values():
+                result = search_in_tree(needle, child)
+                if result:
+                    return result
             return None
 
-        for path in search_tree.values():
-            if path["bundle"] == bundle_id:
-                return path
-            if "children" in path:
-                child_res = self.get_group_for_bundle_id(bundle_id, path["children"])
-                if child_res:
-                    return child_res
-        return None
+        return search_in_tree(field_id, self.tree)
 
     def get_path_for_id(self, field_id: str) -> dict:
-        for pb_path in self.pb_paths.values():
-            if pb_path['field'] == field_id or pb_path['is_group'] and pb_path['bundle'] == field_id:
-                return pb_path
+        for path in self.paths.values():
+            if path['field'] == field_id or path['field'] == path['bundle'] and path['bundle'] == field_id:
+                return path
         return None
 
-    def add_path(self, new_path: dict, tree: dict = None) -> bool:
-        """Add a path to this pathbuilder.
+    def add_path(self, new_path: dict) -> bool:
 
-        Args:
-            new_path (dict): The path to be added.
-            tree (dict, optional): The search tree. Defaults to None.
+        def add_to_tree(element, tree):
+            if element["enabled"] != "1":
+                # print(f"{element['id']} not enabled, skipping")
+                return False
 
-        Returns:
-            bool: True if successful, False otherwise.
-        """
-        if new_path["enabled"] != "1":
-            return False
+            parent = element['parent']
+            new_id = element['id']
 
-        if tree is None:
-            tree = self.paths
+            # Path belongs to this tree node:
+            if parent == tree['id']:
+                # Skip if the path already exists
+                if new_id in tree['children']:
+                    # print(f"path {new_id} exists, skipping")
+                    return False
+                tree['children'][new_id] = {
+                    'id': new_id,
+                    'children': {}
+                }
+                return True
 
-        self.pb_paths[new_path["id"]] = new_path
-
-        # Path is a top level group:
-        if new_path["is_group"] and new_path["parent"] == "0":
-            self.paths[new_path["id"]] = new_path
+            # Path does not belong to this tree node -> search in children
+            for child in tree['children'].values():
+                add_to_tree(element, child)
             return True
 
-        for path in tree.values():
-            # Cannot add a path to a field => skip.
-            if not path["is_group"]:
-                continue
-
-            # Bundle has no children yet => make a dict out of the empty list.
-            if isinstance(path["children"], list):
-                path["children"] = {}
-
-            # New path belongs to this bundle.
-            if self.pb_paths[new_path["parent"]]["bundle"] == path["bundle"]:
-                # Do only add if the path is not there yet.
-                if new_path["id"] not in path["children"]:
-                    path["children"][new_path["id"]] = new_path
-                return True
-
-            # New path does not belong to the bundle.
-            # => check if it belongs to the children.
-            if self.add_path(new_path, path["children"]):
-                return True
-
-        # New path does not belong to any bundle:
-        return False
+        # Only add if the path does not exist yet.
+        if new_path['id'] not in self.paths:
+            self.paths[new_path['id']] = new_path
+            success = add_to_tree(new_path, self.tree)
 
     def combine(self, other) -> Pathbuilder:
         """Combine this pathbuilder with another pathbuilder"""
         # Add every path in every pathbuilder to the new one.
-        for path in other.pb_paths.values():
-            # Remove children from path.
-            # TODO: This is not really necessary here and should rather
-            # happen when initializing the metadata in the pb
-            new_path = copy.copy(path)
-            new_path["children"] = {}
+        for path in other.paths.values():
             # Add to pid_fid_map if it was added to the pb.
-            self.add_path(new_path)
+            self.add_path(path)
 
         return self
 
@@ -203,13 +177,14 @@ class Entity:
         if self.uri:
             entity_data["wisski_uri"] = [{"value": self.uri}]
 
-        bundle_path = self.api.pathbuilder.get_group_for_bundle_id(self.bundle_id)
+        bundle_path = self.api.pathbuilder.get_subtree_for_field_id(self.bundle_id)
 
         # Abort if not a bundle.
         if "children" not in bundle_path:
             return None
 
-        for path_id, path in bundle_path["children"].items():
+        for path_id in bundle_path["children"]:
+            path = self.api.pathbuilder.paths[path_id]
             field_id = path["field"]
             field_data = []
 
@@ -220,7 +195,7 @@ class Entity:
             # Build a the field data for each provided field value
             # TODO: check for path cardinality here.
             for value in self.fields[field_id]:
-                if path["is_group"]:
+                if path['bundle'] == path['field']:
                     # Skip sub-entities with no field values.
                     if len(value.fields) == 0:
                         continue
@@ -228,7 +203,7 @@ class Entity:
                     # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
                     field_data.append({"entity": child_values})
                 else:
-                    field_data.append(value)
+                    field_data.append(FieldTypeFormatter.format_value(path['fieldtype'], value))
 
             entity_data[field_id] = field_data
         return entity_data
@@ -261,7 +236,8 @@ class Entity:
                         __class__.deserialize(api, field_value["entity"])
                     )
                     continue
-                new_field_value.append(field_value)
+                path = api.pathbuilder.get_path_for_id(field_id)
+                new_field_value.append(FieldTypeFormatter.get_value(path['fieldtype'], field_value))
 
             # Initialize with empty list if no value is present.
             if field_id not in entity_values:
@@ -315,7 +291,7 @@ class Entity:
                 field_type = pb_path['fieldtype']
                 # we have a sub-bundle
                 # print(self.api.pathbuilder.pb_paths[path_id])
-                if pb_path["is_group"]:
+                if pb_path["field"] == pb_path["bundle"]:
                     uris = []
                     # Save every sub-entity to CSV
                     for sub_entity in field_values:
@@ -329,7 +305,7 @@ class Entity:
                         sub_entity.to_csv(folder)
                     row.append("|".join(str(x) for x in uris))
                     continue
-                row.append("|".join(FieldTypeFormatter.get_value(field_type, field_value) for field_value in field_values))
+                row.append("|".join(field_values))
             if not file_exists:
                 writer.writerow(headers)
             writer.writerow(row)
@@ -375,8 +351,7 @@ class Api:
         """
         match obj:
             case Entity() as entity:
-                entity = self.save_entities([entity])[0]
-                return entity
+                return self.save_entities([entity])[0]
             case Pathbuilder() as pathbuilder:
                 # TODO: implement? or see if the flat path format is better suited for im/export...
                 pass
@@ -410,17 +385,8 @@ class Api:
             print(response.text)
             return None
         args = json.loads(response.text)
-        pathbuilder = Pathbuilder(args["id"], args["paths"])
+        pathbuilder = Pathbuilder(pathbuilder_id=args['id'], paths=args["paths"], name=args['name'], adapter=args['adapter'])
         return pathbuilder
-
-    def get_pb_test(self, pathbuilder_id):
-        url = f"{self.base_url}/pathbuilder/{pathbuilder_id}/get"
-        return self.get(url)
-
-    def save_pathbuilder(self, pathbuilder: Pathbuilder) -> Pathbuilder:
-        url = f"{self.base_url}/pathbuilder/create/delete"
-        response = self.delete(url=url)
-        pass
 
     def delete_pb(self, pathbuilder_id: str) -> str:
         """Delete a pathbuilder from the remote.
@@ -555,13 +521,14 @@ class Api:
         Returns:
             Entity: The entity.
         """
-        bundle = self.pathbuilder.get_group_for_bundle_id(bundle_id)
+        bundle = self.pathbuilder.get_subtree_for_field_id(bundle_id)
 
         sub_bundles = {}
         entity_values = {}
 
-        for path_id, path in bundle["children"].items():
-            if path["is_group"]:
+        for path_id in bundle["children"]:
+            path = self.pathbuilder.paths[path_id]
+            if path["bundle"] == path['field']: # this should be an indication for a bundle.
                 # Initialize values when there aren't any yet.
                 if path["bundle"] not in entity_values:
                     entity_values[path["bundle"]] = []
@@ -681,7 +648,7 @@ class Api:
                 # TODO: assuming that the bundle_id always starts with 'b' is a hack
                 # ask the pathbuilder instead.
                 pb_path = self.pathbuilder.get_path_for_id(field_id)
-                if pb_path["is_group"] and field_id in csv_data:
+                if pb_path["field"] == pb_path["bundle"] and field_id in csv_data:
                     sub_entities = []
                     # build the sub-entity
                     for sub_uri in values:
@@ -694,7 +661,7 @@ class Api:
                 else:
                     formatted_values = []
                     for value in values:
-                        formatted_values.append(FieldTypeFormatter.format_value(pb_path['fieldtype'], value))
+                        formatted_values.append(value)
                     entity_values[field_id] = formatted_values
             return Entity(self, bun, entity_values, uri)
 
@@ -728,9 +695,9 @@ class Api:
                 # Remap from path id to field id.
                 new_headers = []
                 for header in headers:
-                    if header not in self.pathbuilder.pb_paths:
+                    if header not in self.pathbuilder.paths:
                         continue
-                    new_headers.append(self.pathbuilder.pb_paths[header]["field"])
+                    new_headers.append(self.pathbuilder.paths[header]["field"])
                 headers = new_headers
 
             for line, row in enumerate(reader):
@@ -923,8 +890,6 @@ class FieldTypeFormatter:
                 "url": "some URL",
             }
         elif field_type == "link":
-            parser = HTMLParser()
-
             formatted_value = {
                 "uri": value,
                 "title": value,
@@ -943,13 +908,16 @@ class FieldTypeFormatter:
         Returns:
             str: The value as string.
         """
-        if field_type in ["string", "text_long"]:
-            return value['value']
         if field_type == "entity_reference":
             return str(value['target_uri'])
         if field_type == "image":
             return str(value['target_id'])
         if field_type == "link":
             return f"<a href={value['uri']}>{value['title'] if 'title' in value else value['uri']}</a>"
+        if field_type in ["string"]:
+            return value['value']
+        if field_type in ["text_long"]:
+            return value['value']
 
-        return ""
+        return value['value']
+
