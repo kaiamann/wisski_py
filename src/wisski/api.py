@@ -194,8 +194,9 @@ class Entity:
 
             # Build a the field data for each provided field value
             # TODO: check for path cardinality here.
+            # TODO: maybe move the check for entity reference type and the following check for distinguishing between URI/Entity to FieldTypeFormatter?
             for value in self.fields[field_id]:
-                if path['bundle'] == path['field']:
+                if path['bundle'] == path['field'] or path['fieldtype'] == "entity_reference" and isinstance(value, Entity):
                     # Skip sub-entities with no field values.
                     if len(value.fields) == 0:
                         continue
