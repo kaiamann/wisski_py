@@ -67,7 +67,7 @@ class Pathbuilder:
         def search_in_tree(needle, haystack):
             path_id = haystack['id']
 
-            if path_id in self.paths and needle == self.paths[path_id]['field']:
+            if path_id in self.paths and (needle == self.paths[path_id]['field'] or needle == self.paths[path_id]['bundle']):
                 return haystack
 
             for child in haystack['children'].values():
