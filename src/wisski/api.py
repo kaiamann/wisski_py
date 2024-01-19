@@ -611,6 +611,39 @@ class Api:
 
         return entities
 
+    # -----------------------
+    # --- Bundle Handling ---
+    # -----------------------
+
+    def get_bunde_ids(self) -> map[str, str]:
+        """Get a list of all available bundle_ids and their labels.
+        """
+        url = f"{self.base_url}/bundle/list"
+        response = self.get(url)
+        if response.status_code != 200:
+            print(response.text)
+            return None
+
+        return response.json()
+
+
+    def get_uris_for_bundle(self, bundle_id: str) ->list[str]:
+        """Get a list of all URIs for a specific bundle.
+
+        Args:
+            bundle_id (str): The ID of the bundle to get.
+
+        Returns:
+            list[str]: A list of URIs.
+        """
+        url = f"{self.base_url}/bundle/{bundle_id}"
+        response = self.get(url)
+        if response.status_code != 200:
+            print(response.text)
+            return None
+
+        return response.json()
+
     # ----------------------
     # --- File Utilities ---
     # ----------------------
