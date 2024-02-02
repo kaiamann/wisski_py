@@ -81,7 +81,7 @@ class Pathbuilder:
 
     def get_path_for_id(self, field_id: str) -> dict:
         for path in self.paths.values():
-            if path['field'] == field_id or path['field'] == path['bundle'] and path['bundle'] == field_id:
+            if path['field'] == field_id or (path['field'] == path['bundle'] and path['bundle'] == field_id):
                 return path
         return None
 
@@ -140,74 +140,36 @@ class Entity:
         self.api = api
         self.bundle_id = bundle_id
         self.fields = fields
-        self._saved_fields = {}
         self.uri = uri
+        self._saved_hash = None
 
-    def assert_saved(self) -> 'Entity':
+    def _mark_unmodified(self) -> 'Entity':
         """
-            Informs the entity that all field values as they are currently set are saved server-side.
-            Returns self for convenience
+            Marks this entity as not modified since last retrieved from the server.
+            Returns the entity for convenience.
         """
-        self._saved_fields = copy.deepcopy(self.fields)
+        self._saved_hash = self._hash()
         return self
 
     @property
     def modified(self) -> bool:
-        """ Checks if any field value has been modified """
+        """
+            Checks if the client modified this entity since it was last retrieved from the server.
+        """
 
-        return Entity.field_dicts_equal(self.fields, self._saved_fields)
-
-    @classmethod
-    def field_dicts_equal(cls, left: dict, right: dict) -> bool:
-         # fast path: some field was added or removed
-        if len(left) != len(right):
+        # never saved
+        if self._saved_hash is None:
             return True
 
-        # compare the values of each field
-        for field_id in left:
-            if cls.field_dicts_field_equal(left, right, field_id):
-                return True
+        # get current and saved serializations
+        return self._saved_hash != self._hash()
 
-        # everything was the same
-        return False
+    def _hash(self) -> str:
+        """ Serializes this entity as a string that can be used to determine if the content and ids of two entities are identical.
+            Callers must not rely on internal structure of the string, use serialize instead for that.
+        """
 
-    @classmethod
-    def field_dicts_field_equal(cls, left: dict, right: dict, field_id: str) -> bool:
-        """ checks if the given field has been modified """
-        # new field added
-        if field_id not in left:
-            return True
-        lvalue = left[field_id]
-
-        # field removed
-        if field_id not in right:
-            return True
-        rvalue = right[field_id]
-
-        # fields have been updated
-        if len(lvalue) != len(rvalue):
-            return True
-
-        # compare each value
-        # TODO: compare values using appropriate entity
-        for (l, r) in zip(lvalue, rvalue):
-            if not cls.field_value_equals(l, r):
-                return True
-
-        # everything is identical
-        return False
-
-    @classmethod
-    def field_value_equals(cls, left, right) -> bool:
-        # different types
-        if type(left) is not type(right):
-            return False
-
-        # primitive (non-entity) type
-        if not isinstance(left, Entity):
-            return left == right
-
-        return cls.field_dicts_equal(left.fields, right.fields)
+        return json.dumps(self.serialize(), sort_keys=True)
 
     def flatten(self) -> dict:
         """Flatten this entity and all its sub-entities.
@@ -277,24 +239,35 @@ class Entity:
             entity_data[field_id] = field_data
         return entity_data
 
-    @staticmethod
-    def deserialize(api: Api, data: dict) -> Entity:
-        """Builds a new entity from the tree representation.
+    def save(self, force: bool = False) -> bool:
+        """ Saves this entity if it has been modified since the last server save.
 
         Args:
-            tree (dict): The entity in tree representation.
+            force (Bool): Force saving even if the entity doesn't appear unmodified.
 
         Returns:
-            Entity: The new entity.
+            True if saved, False otherwise. """
+        if not force and not self.modified:
+            return False
+
+        self.api.save(self)
+        return True
+
+    def load(self, data: dict, modified: bool = True) -> Entity:
+        """ De-serializes the values in this entity from data.
+        See deserialize for format details.
+
+        Modified indicates if the newly modified entity is marked as being modified since the last server save.
         """
-        entity_values = {}
+
+        self.fields = {}
         for field_id, values in data.items():
             # Extract bundle and URI
             if field_id == "bundle":
-                bundle_id = data["bundle"][0]["target_id"]
+                self.bundle_id = data["bundle"][0]["target_id"]
                 continue
             if field_id == "wisski_uri":
-                uri = data["wisski_uri"][0]["value"]
+                self.uri = data["wisski_uri"][0]["value"]
                 continue
 
             new_field_value = []
@@ -302,19 +275,35 @@ class Entity:
                 # Catch sub-entities and deserialize them.
                 if "entity" in field_value:
                     new_field_value.append(
-                        __class__.deserialize(api, field_value["entity"])
+                        __class__.deserialize(self.api, field_value["entity"], modified=modified)
                     )
                     continue
-                path = api.pathbuilder.get_path_for_id(field_id)
+                path = self.api.pathbuilder.get_path_for_id(field_id)
                 new_field_value.append(FieldTypeFormatter.get_value(path['fieldtype'], field_value))
 
             # Initialize with empty list if no value is present.
-            if field_id not in entity_values:
-                entity_values[field_id] = []
+            if field_id not in self.fields:
+                self.fields[field_id] = []
             if len(new_field_value) != 0:
-                entity_values[field_id] = new_field_value
+                self.fields[field_id] = new_field_value
+        if not modified:
+            self._mark_unmodified()
 
-        return Entity(api=api, bundle_id=bundle_id, fields=entity_values, uri=uri)
+
+    @staticmethod
+    def deserialize(api: Api, data: dict, modified: bool = True) -> Entity:
+        """Builds a new entity from the tree representation.
+
+        Args:
+            tree (dict): The entity in tree representation.
+            modified (bool): Should this entity be marked as being modified since being fetched from the server.
+        Returns:
+            Entity: The new entity.
+        """
+
+        new = Entity(api=api, bundle_id="", fields={})
+        new.load(data, modified=modified)
+        return new
 
     def to_csv(self, folder: str) -> None:
         """Convert this entity into csv.
@@ -634,7 +623,7 @@ class Api:
             print(response.text)
             return None
 
-        return Entity.deserialize(self, json.loads(response.text)).assert_saved()
+        return Entity.deserialize(self, json.loads(response.text), modified=False)
 
     def save_entities(
         self, entities: list[Entity], create_if_new: bool = True
@@ -676,7 +665,7 @@ class Api:
         # This is necessary to also set the URIs for sub-entities
         # since we only have the handle to the main entity.
         for i, entity_data in enumerate(json.loads(response.text)):
-            entities[i] = Entity.deserialize(self, entity_data)
+            entities[i].load(entity_data, modified=False)
 
         return entities
 
