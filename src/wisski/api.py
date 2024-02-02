@@ -7,6 +7,7 @@ import csv
 import json
 import os
 import requests
+import copy
 
 WISSKI_INDIVIDUAL = "wisski_individual"
 WISSKI_BUNDLE = "wisski_bundle"
@@ -139,7 +140,74 @@ class Entity:
         self.api = api
         self.bundle_id = bundle_id
         self.fields = fields
+        self._saved_fields = {}
         self.uri = uri
+
+    def assert_saved(self) -> 'Entity':
+        """
+            Informs the entity that all field values as they are currently set are saved server-side.
+            Returns self for convenience
+        """
+        self._saved_fields = copy.deepcopy(self.fields)
+        return self
+
+    @property
+    def modified(self) -> bool:
+        """ Checks if any field value has been modified """
+
+        return Entity.field_dicts_equal(self.fields, self._saved_fields)
+
+    @classmethod
+    def field_dicts_equal(cls, left: dict, right: dict) -> bool:
+         # fast path: some field was added or removed
+        if len(left) != len(right):
+            return True
+
+        # compare the values of each field
+        for field_id in left:
+            if cls.field_dicts_field_equal(left, right, field_id):
+                return True
+
+        # everything was the same
+        return False
+
+    @classmethod
+    def field_dicts_field_equal(cls, left: dict, right: dict, field_id: str) -> bool:
+        """ checks if the given field has been modified """
+        # new field added
+        if field_id not in left:
+            return True
+        lvalue = left[field_id]
+
+        # field removed
+        if field_id not in right:
+            return True
+        rvalue = right[field_id]
+
+        # fields have been updated
+        if len(lvalue) != len(rvalue):
+            return True
+
+        # compare each value
+        # TODO: compare values using appropriate entity
+        for (l, r) in zip(lvalue, rvalue):
+            if not cls.field_value_equals(l, r):
+                return True
+
+        # everything is identical
+        return False
+
+    @classmethod
+    def field_value_equals(cls, left, right) -> bool:
+        # different types
+        if type(left) is not type(right):
+            return False
+
+        # primitive (non-entity) type
+        if not isinstance(left, Entity):
+            return left == right
+
+        return cls.field_dicts_equal(left.fields, right.fields)
 
     def flatten(self) -> dict:
         """Flatten this entity and all its sub-entities.
@@ -277,6 +345,7 @@ class Entity:
             # Just take the order of values
             headers = ["uri"]
             headers.extend(self.fields.keys())
+
 
         with open(filename, mode="a", encoding="utf-8") as file:
             writer = csv.writer(file)
@@ -564,7 +633,7 @@ class Api:
             print(response.text)
             return None
 
-        return Entity.deserialize(self, json.loads(response.text))
+        return Entity.deserialize(self, json.loads(response.text)).assert_saved()
 
     def save_entities(
         self, entities: list[Entity], create_if_new: bool = True
