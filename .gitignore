@@ -5,3 +5,4 @@ test*
 *.xml
 *.json
 *.csv
+.env
