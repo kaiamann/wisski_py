@@ -868,50 +868,6 @@ class Api:
             url, auth=self.auth, headers=self.headers, timeout=self.timeout
         )
 
-    @staticmethod
-    def build_field_data(path: dict, value: any) -> dict:
-        """Build the field data for a particular path and value.
-
-        Args:
-            path (dict): The path that the value should be stored to.
-            value (any): The value to be stored.
-
-        Returns:
-            dict: The field data as a dict.
-        """
-        content = []
-
-        field_type = path["fieldtype"]
-        if field_type == "string":
-            content = {"value": value}
-        elif field_type == "entity_reference":
-            content = {
-                "target_uri": value,
-                "target_type": WISSKI_INDIVIDUAL,
-            }
-        elif field_type == "text_long":
-            content = {
-                "value": value,
-                "format": "basic_html",
-            }
-        elif field_type == "image":
-            # TODO: see what of these is needed/correct
-            content = {
-                "target_id": value,
-                "alt": None,
-                "title": None,
-                "target_type": "file",
-                "url": "some URL",
-            }
-        elif field_type == "link":
-            content = {
-                "uri": value,
-                "title": "something",
-                "options": []
-            }
-        return content
-
-
 class MissingUriException(Exception):
     """Raised when an entity has no URI"""
 
