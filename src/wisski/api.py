@@ -287,6 +287,7 @@ class Entity:
                 self.fields[field_id] = new_field_value
         if not modified:
             self._mark_unmodified()
+        return self
 
 
     @staticmethod
