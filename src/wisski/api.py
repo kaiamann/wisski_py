@@ -916,10 +916,10 @@ class FieldTypeFormatter:
         Returns:
             dict: The value wrapped in the Drupal field format.
         """
-        formatted_value = {}
-        if field_type == "string":
-            formatted_value = {"value": value}
-        elif field_type == "entity_reference":
+        # Assume sane default
+        formatted_value = {"value": value}
+
+        if field_type == "entity_reference":
             formatted_value = {
                 "target_uri": value,
                 "target_type": WISSKI_INDIVIDUAL,
