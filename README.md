@@ -85,7 +85,7 @@ api.save(entity)
 ```
 
 ### Creating new Entities:
-To create new entities you just need to supply an entity with a dict that contains the corresponding `field_id` -> `value` mapping.
+To create new entities you just need to supply an entity with a dict that contains the corresponding `field_id` &rarr; `value` mapping.
 
 Let's look at the following example pathbuilder structure to illustrate:
 - **Collection Object**: `object_bundle_id`
@@ -104,7 +104,7 @@ Code for creating a new entity:
 production_values = {
     'date_field_id': ["11.11.1111"]
 }
-production = Entity(fields=production_values, bundle_id="production_bundle_id")
+production = Entity(api=api, fields=production_values, bundle_id="production_bundle_id")
 
 # Set up the collection object entity
 object_values = {
@@ -112,7 +112,7 @@ object_values = {
     'title_field_id': ["some Title", "another Title"],
     'production_bundle_id': [production]
 }
-collection_object = Entity(fields=object_values, bundle_id="object_bundle_id")
+collection_object = Entity(api=api, fields=object_values, bundle_id="object_bundle_id")
 ```
 As of now this entity does not have a URI.
 Upon saving the entity to the remote, the api returns a new entity with updated URIs.
