@@ -130,17 +130,25 @@ class Pathbuilder:
 class Entity:
     """A WissKI entity."""
 
+    api: Api
+    bundle_id: str
+    fields: dict
+    uri: str
+    translations: dict[str, Entity]
+
     def __init__(
         self,
         api: Api,
         bundle_id: str,
         fields: dict,
         uri: str = None,
+        translations: dict[str, Entity] = {}
     ) -> None:
         self.api = api
         self.bundle_id = bundle_id
         self.fields = fields
         self.uri = uri
+        self.translations = translations
         self._saved_hash = None
 
     def _mark_unmodified(self) -> 'Entity':
@@ -170,6 +178,15 @@ class Entity:
         """
 
         return json.dumps(self.serialize(), sort_keys=True)
+
+    def add_translation(self, language: str, translation: Entity) -> None:
+        """Add a translation to this entity.
+
+        Args:
+            language (str): The langcode of the translation.
+            translation (Entity): The translation.
+        """
+        self.translations[language] = translation
 
     def flatten(self) -> dict:
         """Flatten this entity and all its sub-entities.
@@ -651,12 +668,16 @@ class Api:
 
         url = f"{self.base_url}/entity/create?overwrite={1 if create_if_new else 0}"
         data = []
+        translations = []
         for entity in entities:
             data.append(entity.serialize())
+            for translation in entity.translations:
+                translations.append(translation.serialize())
 
         # TODO: find out when this post request fails.
         # Either due to timeout or request size.
         response = self.post(url=url, json_data=data, timeout=1200)
+
 
         # Something went wrong...
         if response.status_code != 200:
