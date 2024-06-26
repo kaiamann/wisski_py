@@ -732,7 +732,7 @@ class Api:
         Returns:
             list[str]: A list of URIs.
         """
-        url = f"{self.base_url}/bundle/{bundle_id}"
+        url = f"{self.base_url}/entity/{bundle_id}/list"
         response = self.get(url)
         if response.status_code != 200:
             print(response.text)
