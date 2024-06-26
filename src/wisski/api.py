@@ -7,7 +7,6 @@ import csv
 import json
 import os
 import requests
-import copy
 
 WISSKI_INDIVIDUAL = "wisski_individual"
 WISSKI_BUNDLE = "wisski_bundle"
@@ -102,8 +101,7 @@ class Pathbuilder:
             dict: The pbpath entry
         """
         for path in self.paths.values():
-            # TODO: replace path['field'] == field_id check for bundle with path['is_group']
-            if path['field'] == field_id or (path['field'] == path["bundle"] and path['bundle'] == field_id):
+            if path['field'] == field_id or (path['field'] == path['bundle'] and path['bundle'] == field_id):
                 return path
         return None
 
@@ -390,7 +388,7 @@ class Entity:
                 field_type = pb_path['fieldtype']
                 # we have a sub-bundle
                 # print(self.api.pathbuilder.pb_paths[path_id])
-                if pb_path["field"] == pb_path["bundle"]:
+                if pb_path["is_group"]:
                     uris = []
                     # Save every sub-entity to CSV
                     for sub_entity in field_values:
@@ -627,7 +625,7 @@ class Api:
 
         for path_id in bundle["children"]:
             path = self.pathbuilder.paths[path_id]
-            if path["bundle"] == path['field']: # this should be an indication for a bundle.
+            if path["is_group"]:
                 # Initialize values when there aren't any yet.
                 if path["bundle"] not in entity_values:
                     entity_values[path["bundle"]] = []
@@ -777,10 +775,8 @@ class Api:
             entity_values = {}
             for field_id, values in row.items():
                 # we have a bundle and values to go with it
-                # TODO: assuming that the bundle_id always starts with 'b' is a hack
-                # ask the pathbuilder instead.
                 pb_path = self.pathbuilder.get_path_for_id(field_id)
-                if pb_path["field"] == pb_path["bundle"] and field_id in csv_data:
+                if pb_path["is_group"] and field_id in csv_data:
                     sub_entities = []
                     # build the sub-entity
                     for sub_uri in values:
