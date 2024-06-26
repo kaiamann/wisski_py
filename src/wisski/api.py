@@ -24,6 +24,9 @@ class KeyType(Enum):
 class Pathbuilder:
     """Class representing a pathbuilder."""
 
+    class NoSuchPathException(Exception):
+        """Raised when this pathbuilder doesn't contain a particular path"""
+
     class ImportMode(str, Enum):
         """Enum for specifying a pathbuilder import mode."""
 
@@ -42,18 +45,25 @@ class Pathbuilder:
         self.paths = {}
         self.add_paths(paths)
 
-    def add_paths(self, paths):
-        parent_ids = ['0']
+    def add_paths(self, paths: list) -> int:
+        """Add a set of paths to this pathbuilder.
+
+        Args:
+            paths (list): A list of paths
+
+        Returns:
+            int: The number of paths that were added
+        """
         helper = paths.copy()
-        while helper: # This potentially loops infinitely if theres a path that does have a parent that does not exist
+        added = 0
+        while helper:
             new_parent_ids = []
             for path in list(helper.values()):
-                if path['parent'] in parent_ids:
-                    self.add_path(path)
-                    helper.pop(path['id'], None)
+                if self.add_path(path):
+                    added += 1
                     new_parent_ids.append(path['id'])
-            parent_ids = new_parent_ids
-
+                helper.pop(path['id'], None)
+        return added
 
     def get_subtree_for_field_id(self, field_id: str) -> dict:
         """Get the path for a particular bundle ID from the provided search tree.
@@ -65,10 +75,10 @@ class Pathbuilder:
         Returns:
             dict: The path as dict.
         """
-        def search_in_tree(needle, haystack):
+        def search_in_tree(needle: str, haystack: dict) -> dict:
             path_id = haystack['id']
 
-            if path_id in self.paths and (needle == self.paths[path_id]['field'] or needle == self.paths[path_id]['bundle']):
+            if path_id in self.paths and needle in [self.paths[path_id]['field'], self.paths[path_id]['bundle']]:
                 return haystack
 
             for child in haystack['children'].values():
@@ -77,26 +87,50 @@ class Pathbuilder:
                     return result
             return None
 
-        return search_in_tree(field_id, self.tree)
+        result = search_in_tree(field_id, self.tree)
+        if result:
+            return result
+        raise Pathbuilder.NoSuchPathException(f"This pathbuilder has no path with field ID: {field_id}")
 
     def get_path_for_id(self, field_id: str) -> dict:
+        """Return the pbpath entry that belongs to a fieldId
+
+        Args:
+            field_id (str): The fieldId
+
+        Returns:
+            dict: The pbpath entry
+        """
         for path in self.paths.values():
-            if path['field'] == field_id or (path['field'] == path['bundle'] and path['bundle'] == field_id):
+            # TODO: replace path['field'] == field_id check for bundle with path['is_group']
+            if path['field'] == field_id or (path['field'] == path["bundle"] and path['bundle'] == field_id):
                 return path
         return None
 
     def add_path(self, new_path: dict) -> bool:
+        """Add a path to this pathbuilder
 
-        def add_to_tree(element, tree):
-            if element["enabled"] != "1":
+        Args:
+            new_path (dict): The path to be added
+
+        Returns:
+            bool: True if the path was added, False otherwise
+        """
+
+        def add_to_tree(element: dict, tree: dict) -> bool:
+            if not element["enabled"]:
                 # print(f"{element['id']} not enabled, skipping")
                 return False
 
             parent = element['parent']
             new_id = element['id']
 
-            # Path belongs to this tree node:
-            if parent == tree['id']:
+            # Don't try to add if the parent wasn't added yet
+            if parent != "0" and parent not in self.paths:
+                return False
+
+            # Path belongs to this tree node or is root:
+            if parent in [tree['id'], "0"]:
                 # Skip if the path already exists
                 if new_id in tree['children']:
                     # print(f"path {new_id} exists, skipping")
@@ -109,13 +143,15 @@ class Pathbuilder:
 
             # Path does not belong to this tree node -> search in children
             for child in tree['children'].values():
-                add_to_tree(element, child)
-            return True
+                if add_to_tree(element, child):
+                    return True
+            return False
 
         # Only add if the path does not exist yet.
         if new_path['id'] not in self.paths:
             self.paths[new_path['id']] = new_path
-            success = add_to_tree(new_path, self.tree)
+            return add_to_tree(new_path, self.tree)
+        return False
 
     def combine(self, other) -> Pathbuilder:
         """Combine this pathbuilder with another pathbuilder"""
@@ -129,6 +165,9 @@ class Pathbuilder:
 
 class Entity:
     """A WissKI entity."""
+
+    class MissingUriException(Exception):
+        """Raised when this entity has no URI"""
 
     def __init__(
         self,
@@ -321,7 +360,7 @@ class Entity:
         """
         # this only works with entities that have uris
         if not self.uri:
-            raise MissingUriException(f"{self} does not have a URI")
+            raise Entity.MissingUriException(f"{self} does not have a URI")
 
         filename = f"{folder}/{self.bundle_id}.csv"
 
@@ -812,7 +851,7 @@ class Api:
                 if uri:
                     data[uri] = row_data
                 else:
-                    raise MissingUriException(f"No URI in line {line}")
+                    raise Entity.MissingUriException(f"No URI in line {line}")
         return data
 
     # --------------------
@@ -868,8 +907,6 @@ class Api:
             url, auth=self.auth, headers=self.headers, timeout=self.timeout
         )
 
-class MissingUriException(Exception):
-    """Raised when an entity has no URI"""
 
 class FieldTypeFormatter:
 
