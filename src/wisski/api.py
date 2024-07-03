@@ -1000,6 +1000,11 @@ class FieldTypeFormatter:
             return value['value']
         if field_type in ["text_long"]:
             return value['value']
+        if field_type == "file":
+            return value['url']
 
-        return value['value']
-
+        try:
+            return value['value']
+        except KeyError:
+            # Default to str representation of the value
+            return repr(value)
