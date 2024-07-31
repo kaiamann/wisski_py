@@ -263,7 +263,7 @@ class Entity:
             # TODO: check for path cardinality here.
             # TODO: maybe move the check for entity reference type and the following check for distinguishing between URI/Entity to FieldTypeFormatter?
             for value in self.fields[field_id]:
-                if path['bundle'] == path['field'] or path['fieldtype'] == "entity_reference" and isinstance(value, Entity):
+                if (path['is_group'] or path['fieldtype'] == "entity_reference") and isinstance(value, Entity):
                     # Skip sub-entities with no field values.
                     if len(value.fields) == 0:
                         continue
@@ -308,6 +308,10 @@ class Entity:
                 continue
 
             new_field_value = []
+            path = self.api.pathbuilder.get_path_for_id(field_id)
+            if not path:
+                continue
+
             for field_value in values:
                 # Catch sub-entities and deserialize them.
                 if "entity" in field_value:
@@ -315,7 +319,6 @@ class Entity:
                         __class__.deserialize(self.api, field_value["entity"], modified=modified)
                     )
                     continue
-                path = self.api.pathbuilder.get_path_for_id(field_id)
                 new_field_value.append(FieldTypeFormatter.get_value(path['fieldtype'], field_value))
 
             # Initialize with empty list if no value is present.
@@ -952,7 +955,7 @@ class FieldTypeFormatter:
         # Assume sane default
         formatted_value = {"value": value}
 
-        if field_type == "entity_reference":
+        if not field_type or field_type == "entity_reference":
             formatted_value = {
                 "target_uri": value,
                 "target_type": WISSKI_INDIVIDUAL,
@@ -990,7 +993,7 @@ class FieldTypeFormatter:
         Returns:
             str: The value as string.
         """
-        if field_type == "entity_reference":
+        if not field_type or field_type == "entity_reference":
             return str(value['target_uri'])
         if field_type == "image":
             return str(value['target_id'])
