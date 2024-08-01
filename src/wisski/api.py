@@ -179,6 +179,8 @@ class Entity:
         self.fields = fields
         self.uri = uri
         self._saved_hash = None
+        # Fields from an unused pathbuilder
+        self.unused_fields = None
 
     def _mark_unmodified(self) -> 'Entity':
         """
@@ -248,6 +250,7 @@ class Entity:
 
         # Abort if not a bundle.
         if "children" not in bundle_path:
+            # TODO: throw descriptive error here
             return None
 
         for path_id in bundle_path["children"]:
@@ -274,6 +277,10 @@ class Entity:
                     field_data.append(FieldTypeFormatter.format_value(path['fieldtype'], value))
 
             entity_data[field_id] = field_data
+
+        # Copy over the unused field values
+        entity_data.update(self.unused_fields)
+
         return entity_data
 
     def save(self, force: bool = False) -> bool:
@@ -298,6 +305,7 @@ class Entity:
         """
 
         self.fields = {}
+        self.unused_fields = {}
         for field_id, values in data.items():
             # Extract bundle and URI
             if field_id == "bundle":
@@ -309,7 +317,9 @@ class Entity:
 
             new_field_value = []
             path = self.api.pathbuilder.get_path_for_id(field_id)
+            # In case the path is not in one of the used pathbuilders, save the values and continue
             if not path:
+                self.unused_fields[field_id] = values
                 continue
 
             for field_value in values:
