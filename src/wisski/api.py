@@ -180,7 +180,7 @@ class Entity:
         self.uri = uri
         self._saved_hash = None
         # Fields from an unused pathbuilder
-        self.unused_fields = None
+        self.unused_fields = {}
 
     def _mark_unmodified(self) -> 'Entity':
         """
