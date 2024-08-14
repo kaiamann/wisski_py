@@ -710,7 +710,7 @@ class Api:
 
         # Something went wrong...
         if response.status_code != 200:
-            return response.text
+            return print(response.text)
 
         # Replace the entities with the ones from the API
         # This is necessary to also set the URIs for sub-entities
