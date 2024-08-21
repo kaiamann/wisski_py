@@ -54,6 +54,19 @@ class Pathbuilder:
             int: The number of paths that were added
         """
         helper = paths.copy()
+
+        # reorder the paths by group status: two passes, first push all groups, then all other
+        groups = {}
+        other = {}
+        for k, v in helper.items():
+            if v['is_group']:
+                groups[k] = v
+            else:
+                other[k] = v
+
+        groups.update(dict(sorted(other.items(), reverse=True)))
+        helper = groups.copy()
+
         added = 0
         while helper:
             new_parent_ids = []
