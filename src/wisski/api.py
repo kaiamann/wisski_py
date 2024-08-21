@@ -54,6 +54,19 @@ class Pathbuilder:
             int: The number of paths that were added
         """
         helper = paths.copy()
+
+        # reorder the paths by group status: two passes, first push all groups, then all other
+        groups = {}
+        other = {}
+        for k, v in helper.items():
+            if v['is_group']:
+                groups[k] = v
+            else:
+                other[k] = v
+
+        groups.update(dict(sorted(other.items(), reverse=True)))
+        helper = groups.copy()
+
         added = 0
         while helper:
             new_parent_ids = []
@@ -180,7 +193,7 @@ class Entity:
         self.uri = uri
         self._saved_hash = None
         # Fields from an unused pathbuilder
-        self.unused_fields = None
+        self.unused_fields = {}
 
     def _mark_unmodified(self) -> 'Entity':
         """
@@ -710,7 +723,7 @@ class Api:
 
         # Something went wrong...
         if response.status_code != 200:
-            return response.text
+            return print(response.text)
 
         # Replace the entities with the ones from the API
         # This is necessary to also set the URIs for sub-entities
