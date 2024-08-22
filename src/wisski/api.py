@@ -441,9 +441,6 @@ class Api:
         self.auth = auth
         self.headers = headers
         self.timeout = timeout
-        # Per default we use ALL pathbuilders that are on the remote.
-        self.pathbuilders = self.get_pathbuilder_ids()
-        self.pathbuilder = self.__rebuild_pathbuilder()
 
     def __setattr__(self, __name: str, __value: any) -> None:
         super().__setattr__(__name, __value)
@@ -460,6 +457,10 @@ class Api:
             pathbuilders[pathbuilder_id] = self.get_pathbuilder(pathbuilder_id)
         # Build the combined pathbuilder.
         return self.combine_pathbuilders(pathbuilders)
+
+    def init_pathbuilders(self) -> None:
+        self.pathbuilders = self.get_pathbuilder_ids()
+        self.pathbuilder = self.__rebuild_pathbuilder()
 
     def save(
         self, obj: Entity | Pathbuilder | list

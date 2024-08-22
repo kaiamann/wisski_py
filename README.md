@@ -28,14 +28,27 @@ api = Api(api_url, auth, headers)
 To be able to import/edit WissKI entities the API also needs to load a pathbuilder for context.
 The context tells the API which fields are present in which Bundle, and thus which values have to be mapped to which path/field.
 
-Per default the API uses **ALL** pathbuilders that are available in the system, which may lead to problems, e.g. when WissKI linkblock pathbuilders are present(?). This is not tested yet, but it is not unlikely that problems might occur.
-For this purpose you can configure which pathbuilders are used by the API.
-```py
+The API wrapper can either initialize **ALL** pathbuilders that are a available in the system for you, but must be told to do so explicitly; or you configure a (set of) pathbuilder(s) to use.
+By default, no pathbuilders are initialized, so **make sure to choose a setup prior to interacting with the API**.
+
+Initializing all available pathbuilders may lead to problems, e.g., when WissKI linkblock pathbuilders are present (?).
+This is not tested yet, but it is likely that problems will occur.
+
+**Note:** you must either explicitly initialize all pathbuilders, or configure which pathbuilder to use:
+
+```python
 # Check which pathbuilders are present in the system.
-print(api.get_pathbuilder_ids()) # output e.g.: ['pathbuilder1', 'pathbuilder2', 'linkblock_pathbuilder']
-# In case you only want to use pathbuilder1:
+print(api.get_pathbuilder_ids()) 
+# >>> ['pathbuilder1', 'pathbuilder2', 'linkblock_pathbuilder']
+
+# Initialize all available pathbuilders:
+api.init_pathbuilders()
+
+# Or configure the pathbuilder explicitly; this internalizes the pathbuilder under
+# the hood, no further processing is required:
 api.pathbuilders = ['pathbuilder1']
 ```
+
 ### Multiple Pathbuilders:
 The API can also handle multiple pathbuilders, by combining several pathbuilders.
 Note that the combining only happens on the client (Python) side.
