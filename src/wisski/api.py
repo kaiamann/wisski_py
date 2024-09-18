@@ -1000,8 +1000,8 @@ class FieldTypeFormatter:
             }
         elif field_type == "link":
             formatted_value = {
-                "uri": value,
-                "title": value,
+                "uri": value['uri'],
+                "title": value['title'],
                 "options": []
             }
         return formatted_value
@@ -1022,7 +1022,7 @@ class FieldTypeFormatter:
         if field_type == "image":
             return str(value['target_id'])
         if field_type == "link":
-            return f"<a href={value['uri']}>{value['title'] if 'title' in value else value['uri']}</a>"
+            return value
         if field_type in ["string"]:
             return value['value']
         if field_type in ["text_long"]:
