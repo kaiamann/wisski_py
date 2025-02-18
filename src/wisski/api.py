@@ -310,6 +310,20 @@ class Entity:
         self.api.save(self)
         return True
 
+    def delete(self) -> bool:
+        """Delete this entity from the remote.
+
+        Returns:
+            True if successful, False otherwise"""
+
+        url = f"{self.api.base_url}/entity/delete?uri={self.uri}"
+        response = self.api.delete(url)
+        if response.status_code != 200:
+            return False
+        self.uri = None
+        return True
+
+
     def load(self, data: dict, modified: bool = True) -> Entity:
         """ De-serializes the values in this entity from data.
         See deserialize for format details.
