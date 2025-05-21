@@ -4,7 +4,7 @@ This project provides a minimal python library to easily interact with WissKI sy
 ## Installation:
 For now clone this repo and install locally using pip.
 ```
-git clone git@github.com:kaiamann/wisski_py.git
+git clone https://github.com/kaiamann/wisski_py.git
 cd wisski_py
 pip install .
 ```
