@@ -148,17 +148,23 @@ Just keep in mind that this approach cannot create multiple sub-entities for a s
 ## Entities and CSV
 
 ### Export
-If you want you can export an entity to `.csv` format like this:
+If you want you can export an entity to `.csv` format you can do so like this:
 ```py
+import os
+
 entity = api.get_entity("http://some.random.uri")
 out_dir = os.path.join(os.path.expanduser("~"), "csv_data")
 entity.to_csv(out_dir)
 ```
-This will export the entity into potentially multiple `csv` files and place them in the `example_csv` folder in your home directory. (make sure that this directory actually exists)
+This exports the entity into potentially multiple `csv` files and place them in the `csv_data` folder in your home directory. (make sure that this directory actually exists)
+Calling `to_csv` with our previous collection object would result in two files being created:
+- `object_bundle_id.csv`
+- `production_bundle_id.csv`
+The API exports each sub-bundle into its own `csv` file.
 
 
 ### Import
-You can also import entities from `.csv` files.
+You can also import entities from `csv` files.
 A `.csv` file containing entities of a specific bundle should be named like the corresponding bundle id.
 
 For our previous example this would result in:
