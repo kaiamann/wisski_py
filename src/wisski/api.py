@@ -33,13 +33,15 @@ class Pathbuilder:
         CONNECT_NO_FIELD = "1ae353e47a8aa3fc995220848780758a"
         GENERATE_NEW_FIELD = "ea6cd7a9428f121a9a042fe66de406eb"
 
-    def __init__(self, pathbuilder_id: str, paths: dict, name: str = None, adapter: str = None) -> None:
+    def __init__(
+        self, pathbuilder_id: str, paths: dict, name: str = None, adapter: str = None
+    ) -> None:
         self.pathbuilder_id = pathbuilder_id
         self.name = name
         self.adapter = adapter
         self.tree = {
-            'id': '0',
-            'children': {}
+            "id": "0",
+            "children": {},
         }
         self.paths = {}
         self.add_paths(paths)
@@ -59,7 +61,7 @@ class Pathbuilder:
         groups = {}
         other = {}
         for k, v in helper.items():
-            if v['is_group']:
+            if v["is_group"]:
                 groups[k] = v
             else:
                 other[k] = v
@@ -73,8 +75,8 @@ class Pathbuilder:
             for path in list(helper.values()):
                 if self.add_path(path):
                     added += 1
-                    new_parent_ids.append(path['id'])
-                helper.pop(path['id'], None)
+                    new_parent_ids.append(path["id"])
+                helper.pop(path["id"], None)
         return added
 
     def get_subtree_for_field_id(self, field_id: str) -> dict:
@@ -87,13 +89,17 @@ class Pathbuilder:
         Returns:
             dict: The path as dict.
         """
-        def search_in_tree(needle: str, haystack: dict) -> dict:
-            path_id = haystack['id']
 
-            if path_id in self.paths and needle in [self.paths[path_id]['field'], self.paths[path_id]['bundle']]:
+        def search_in_tree(needle: str, haystack: dict) -> dict:
+            path_id = haystack["id"]
+
+            if path_id in self.paths and needle in [
+                self.paths[path_id]["field"],
+                self.paths[path_id]["bundle"],
+            ]:
                 return haystack
 
-            for child in haystack['children'].values():
+            for child in haystack["children"].values():
                 result = search_in_tree(needle, child)
                 if result:
                     return result
@@ -102,7 +108,9 @@ class Pathbuilder:
         result = search_in_tree(field_id, self.tree)
         if result:
             return result
-        raise Pathbuilder.NoSuchPathException(f"This pathbuilder has no path with field ID: {field_id}")
+        raise Pathbuilder.NoSuchPathException(
+            f"This pathbuilder has no path with field ID: {field_id}"
+        )
 
     def get_path_for_id(self, field_id: str) -> dict:
         """Return the pbpath entry that belongs to a fieldId
@@ -114,7 +122,9 @@ class Pathbuilder:
             dict: The pbpath entry
         """
         for path in self.paths.values():
-            if path['field'] == field_id or (path['field'] == path['bundle'] and path['bundle'] == field_id):
+            if path["field"] == field_id or (
+                path["field"] == path["bundle"] and path["bundle"] == field_id
+            ):
                 return path
         return None
 
@@ -130,37 +140,33 @@ class Pathbuilder:
 
         def add_to_tree(element: dict, tree: dict) -> bool:
             if not element["enabled"]:
-                # print(f"{element['id']} not enabled, skipping")
                 return False
 
-            parent = element['parent']
-            new_id = element['id']
+            parent = element["parent"]
+            new_id = element["id"]
 
             # Don't try to add if the parent wasn't added yet
             if parent != "0" and parent not in self.paths:
                 return False
 
             # Path belongs to this tree node or is root:
-            if parent in [tree['id'], "0"]:
+            if parent in [tree["id"], "0"]:
                 # Skip if the path already exists
-                if new_id in tree['children']:
+                if new_id in tree["children"]:
                     # print(f"path {new_id} exists, skipping")
                     return False
-                tree['children'][new_id] = {
-                    'id': new_id,
-                    'children': {}
-                }
+                tree["children"][new_id] = {"id": new_id, "children": {}}
                 return True
 
             # Path does not belong to this tree node -> search in children
-            for child in tree['children'].values():
+            for child in tree["children"].values():
                 if add_to_tree(element, child):
                     return True
             return False
 
         # Only add if the path does not exist yet.
-        if new_path['id'] not in self.paths:
-            self.paths[new_path['id']] = new_path
+        if new_path["id"] not in self.paths:
+            self.paths[new_path["id"]] = new_path
             return add_to_tree(new_path, self.tree)
         return False
 
@@ -176,6 +182,27 @@ class Pathbuilder:
 
 class Entity:
     """A WissKI entity."""
+
+    # Meta keys from Drupal
+    META_KEYS = [
+        "eid",
+        "uuid",
+        "vid",
+        "langcode",
+        "revision_timestamp",
+        "revision_uid",
+        "revision_log",
+        "published",
+        "label",
+        "uid",
+        "created",
+        "changed",
+        "status",
+        "preview_image",
+        "default_langcode",
+        "revision_default",
+        "revision_translation_affected",
+    ]
 
     class MissingUriException(Exception):
         """Raised when this entity has no URI"""
@@ -194,11 +221,12 @@ class Entity:
         self._saved_hash = None
         # Fields from an unused pathbuilder
         self.unused_fields = {}
+        self.meta = {}
 
-    def _mark_unmodified(self) -> 'Entity':
+    def _mark_unmodified(self) -> Entity:
         """
-            Marks this entity as not modified since last retrieved from the server.
-            Returns the entity for convenience.
+        Marks this entity as not modified since last retrieved from the server.
+        Returns the entity for convenience.
         """
         self._saved_hash = self._hash()
         return self
@@ -206,7 +234,7 @@ class Entity:
     @property
     def modified(self) -> bool:
         """
-            Checks if the client modified this entity since it was last retrieved from the server.
+        Checks if the client modified this entity since it was last retrieved from the server.
         """
 
         # never saved
@@ -217,8 +245,8 @@ class Entity:
         return self._saved_hash != self._hash()
 
     def _hash(self) -> str:
-        """ Serializes this entity as a string that can be used to determine if the content and ids of two entities are identical.
-            Callers must not rely on internal structure of the string, use serialize instead for that.
+        """Serializes this entity as a string that can be used to determine if the content and ids of two entities are identical.
+        Callers must not rely on internal structure of the string, use serialize instead for that.
         """
 
         return json.dumps(self.serialize(), sort_keys=True)
@@ -279,7 +307,9 @@ class Entity:
             # TODO: check for path cardinality here.
             # TODO: maybe move the check for entity reference type and the following check for distinguishing between URI/Entity to FieldTypeFormatter?
             for value in self.fields[field_id]:
-                if (path['is_group'] or path['fieldtype'] == "entity_reference") and isinstance(value, Entity):
+                if (
+                    path["is_group"] or path["fieldtype"] == "entity_reference"
+                ) and isinstance(value, Entity):
                     # Skip sub-entities with no field values.
                     if len(value.fields) == 0:
                         continue
@@ -287,7 +317,9 @@ class Entity:
                     # Wrap the child data in the 'entity' key for the API to recognize the sub-entity.
                     field_data.append({"entity": child_values})
                 else:
-                    field_data.append(FieldTypeFormatter.format_value(path['fieldtype'], value))
+                    field_data.append(
+                        FieldTypeFormatter.format_value(path["fieldtype"], value)
+                    )
 
             entity_data[field_id] = field_data
 
@@ -297,13 +329,13 @@ class Entity:
         return entity_data
 
     def save(self, force: bool = False) -> bool:
-        """ Saves this entity if it has been modified since the last server save.
+        """Saves this entity if it has been modified since the last server save.
 
         Args:
             force (Bool): Force saving even if the entity doesn't appear unmodified.
 
         Returns:
-            True if saved, False otherwise. """
+            True if saved, False otherwise."""
         if not force and not self.modified:
             return False
 
@@ -323,9 +355,8 @@ class Entity:
         self.uri = None
         return True
 
-
     def load(self, data: dict, modified: bool = True) -> Entity:
-        """ De-serializes the values in this entity from data.
+        """De-serializes the values in this entity from data.
         See deserialize for format details.
 
         Modified indicates if the newly modified entity is marked as being modified since the last server save.
@@ -341,6 +372,9 @@ class Entity:
             if field_id == "wisski_uri":
                 self.uri = data["wisski_uri"][0]["value"]
                 continue
+            if field_id in self.META_KEYS:
+                self.meta[field_id] = values
+                continue
 
             new_field_value = []
             path = self.api.pathbuilder.get_path_for_id(field_id)
@@ -353,10 +387,14 @@ class Entity:
                 # Catch sub-entities and deserialize them.
                 if "entity" in field_value:
                     new_field_value.append(
-                        __class__.deserialize(self.api, field_value["entity"], modified=modified)
+                        __class__.deserialize(
+                            self.api, field_value["entity"], modified=modified
+                        )
                     )
                     continue
-                new_field_value.append(FieldTypeFormatter.get_value(path['fieldtype'], field_value))
+                new_field_value.append(
+                    FieldTypeFormatter.get_value(path["fieldtype"], field_value)
+                )
 
             # Initialize with empty list if no value is present.
             if field_id not in self.fields:
@@ -366,7 +404,6 @@ class Entity:
         if not modified:
             self._mark_unmodified()
         return self
-
 
     @staticmethod
     def deserialize(api: Api, data: dict, modified: bool = True) -> Entity:
@@ -414,7 +451,6 @@ class Entity:
             headers = ["uri"]
             headers.extend(self.fields.keys())
 
-
         with open(filename, mode="a", encoding="utf-8") as file:
             writer = csv.writer(file)
             row = []
@@ -425,7 +461,7 @@ class Entity:
 
                 field_values = self.fields[field_id]
                 pb_path = self.api.pathbuilder.get_path_for_id(field_id)
-                field_type = pb_path['fieldtype']
+                field_type = pb_path["fieldtype"]
                 # we have a sub-bundle
                 # print(self.api.pathbuilder.pb_paths[path_id])
                 if pb_path["is_group"]:
@@ -446,6 +482,7 @@ class Entity:
             if not file_exists:
                 writer.writerow(headers)
             writer.writerow(row)
+
 
 class Api:
     """Class for interacting with a remote WissKI system."""
@@ -523,7 +560,12 @@ class Api:
             print(response.text)
             return None
         args = json.loads(response.text)
-        pathbuilder = Pathbuilder(pathbuilder_id=args['id'], paths=args["paths"], name=args['name'], adapter=args['adapter'])
+        pathbuilder = Pathbuilder(
+            pathbuilder_id=args["id"],
+            paths=args["paths"],
+            name=args["name"],
+            adapter=args["adapter"],
+        )
         return pathbuilder
 
     def delete_pb(self, pathbuilder_id: str) -> str:
@@ -644,7 +686,6 @@ class Api:
     # --- Entity Handling ---
     # -----------------------
 
-
     def build_entity(self, bundle_id: str, values: dict) -> Entity:
         """Build an entity from a flat list of values.
 
@@ -685,7 +726,6 @@ class Api:
             entity_values[path["field"]] = values[path["field"]]
 
         return Entity(self, bundle_id, entity_values)
-
 
     def get_entity(self, uri: str, meta: int = 0, expand: int = 1) -> Entity:
         """Get an entity from the WissKI API.
@@ -753,8 +793,7 @@ class Api:
     # -----------------------
 
     def get_bunde_ids(self) -> map[str, str]:
-        """Get a list of all available bundle_ids and their labels.
-        """
+        """Get a list of all available bundle_ids and their labels."""
         url = f"{self.base_url}/bundle/list"
         response = self.get(url)
         if response.status_code != 200:
@@ -763,8 +802,7 @@ class Api:
 
         return response.json()
 
-
-    def get_uris_for_bundle(self, bundle_id: str) ->list[str]:
+    def get_uris_for_bundle(self, bundle_id: str) -> list[str]:
         """Get a list of all URIs for a specific bundle.
 
         Args:
@@ -1014,9 +1052,9 @@ class FieldTypeFormatter:
             }
         elif field_type == "link":
             formatted_value = {
-                "uri": value['uri'],
-                "title": value['title'],
-                "options": []
+                "uri": value["uri"],
+                "title": value["title"],
+                "options": [],
             }
         return formatted_value
 
@@ -1032,20 +1070,20 @@ class FieldTypeFormatter:
             str: The value as string.
         """
         if not field_type or field_type == "entity_reference":
-            return str(value['target_uri'])
+            return str(value["target_uri"])
         if field_type == "image":
-            return str(value['target_id'])
+            return str(value["target_id"])
         if field_type == "link":
             return value
         if field_type in ["string"]:
-            return value['value']
+            return value["value"]
         if field_type in ["text_long"]:
-            return value['value']
+            return value["value"]
         if field_type == "file":
-            return value['url']
+            return value["url"]
 
         try:
-            return value['value']
+            return value["value"]
         except KeyError:
             # Default to str representation of the value
             return repr(value)
