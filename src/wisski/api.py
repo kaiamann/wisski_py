@@ -79,6 +79,35 @@ class Pathbuilder:
                 helper.pop(path["id"], None)
         return added
 
+    def get_target_bundles_for_path_id(self, path_id: str) -> list:
+        """Gets valid entity reference target bundles based on ontology classes.
+
+        Note that this does not take into account subclassing!
+        Args:
+            path_id (str): The id of the entity reference path
+
+        Returns:
+            list: A list og bundle ids
+        """
+        path = self.paths.get(path_id)
+        if not path:
+            raise self.NoSuchPathException(path_id)
+
+        if path.get("fieldtype") != "entity_reference":
+            raise Exception(f"Path {path_id} is not an entity_reference!")
+
+        path_array = path.get("path_array")
+        assert (len(path_array) % 2) == 1
+        assert path.get("datatype_property") == "empty"
+
+        target_class = path_array[-1]
+
+        return [
+            path["bundle"]
+            for path in self.paths.values()
+            if path["id"] != path_id and path["path_array"][-1] == target_class
+        ]
+
     def get_subtree_for_field_id(self, field_id: str) -> dict:
         """Get the path for a particular bundle ID from the provided search tree.
 
@@ -526,7 +555,8 @@ class Api:
         """
         match obj:
             case Entity() as entity:
-                return self.save_entities([entity])[0]
+                ret = self.save_entities([entity])
+                return ret[0] or []
             case Pathbuilder() as pathbuilder:
                 # TODO: implement? or see if the flat path format is better suited for im/export...
                 pass

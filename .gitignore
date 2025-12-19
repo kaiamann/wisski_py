@@ -1,8 +1,10 @@
 build/
-test*
 *__pycache__*
 *.egg-info
 *.xml
 *.json
 *.csv
+*.db
 .env
+.venv
+
